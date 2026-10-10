@@ -456,6 +456,13 @@ func (s *reviewerStrategy) ObserveClaimFailure(err error) claimBreakerDecision {
 	if failure == nil {
 		return claimBreakerDecision{}
 	}
+	failure, stop := s.healOrphanedCandidates(failure)
+	if stop {
+		return claimBreakerDecision{Stop: true}
+	}
+	if failure == nil {
+		return claimBreakerDecision{} // Every candidate was repaired: claim again at once.
+	}
 	breaker := s.activeBreaker()
 	decision := breaker.Observe(failure, time.Now().UTC())
 
@@ -471,6 +478,61 @@ func (s *reviewerStrategy) ObserveClaimFailure(err error) claimBreakerDecision {
 		}
 	}
 	return decision
+}
+
+// healOrphanedCandidates repairs every candidate whose base left the
+// integration branch (D-26): healed in place, or routed to integration
+// recovery. Repaired candidates leave the observation; the rest, including a
+// heal that failed, are counted by the breaker as before, which also bounds
+// how often a heal is retried. A heal rejected for authority stops the
+// supervisor; nil means no candidate is left to observe.
+func (s *reviewerStrategy) healOrphanedCandidates(failure *ops.ReviewClaimFailure) (*ops.ReviewClaimFailure, bool) {
+	if len(failure.Candidates) == 0 {
+		return failure, false
+	}
+	config := s.claimConfig
+	var authority *models.AgentAuthority
+	if config.Authority.ID != "" {
+		authority = &config.Authority
+	}
+	kept := make([]ops.ReviewClaimCandidateFailure, 0, len(failure.Candidates))
+	for _, candidate := range failure.Candidates {
+		if candidate.Class != ops.ReviewClaimClassReviewBoundaryRepair || !candidate.Orphaned {
+			kept = append(kept, candidate)
+			continue
+		}
+		outcome, err := ops.HealOrphanedReviewBase(ops.OrphanedBaseHealInput{
+			ProjectRoot: config.ProjectRoot, AgentID: config.AgentID, Role: s.role, Authority: authority, TaskID: candidate.TaskID,
+		})
+		switch {
+		case ops.IsAgentAuthorityError(err):
+			GetLogger().Error("Orphaned review base heal rejected for authority, exiting supervisor",
+				"agent_id", config.AgentID, "task_id", candidate.TaskID, "error", err)
+			return nil, true
+		case err != nil:
+			GetLogger().Warn("Orphaned review base heal failed",
+				"agent_id", config.AgentID, "task_id", candidate.TaskID, "error", err)
+			var fenced *ops.OrphanedBaseHealFencedError
+			var restore *ops.OrphanedBaseRestoreError
+			if errors.As(err, &fenced) || errors.As(err, &restore) {
+				// The worktree holds an effect to inspect first; the plain
+				// rebase recipe would no longer be the repair.
+				candidate.Recovery = err.Error()
+			}
+			kept = append(kept, candidate)
+		case outcome == ops.OrphanedBaseHealed || outcome == ops.OrphanedBaseHealIntegrationFailed:
+			GetLogger().Info("Orphaned review base repaired",
+				"agent_id", config.AgentID, "task_id", candidate.TaskID, "outcome", outcome)
+		default:
+			kept = append(kept, candidate)
+		}
+	}
+	if len(kept) == 0 {
+		return nil, false
+	}
+	remaining := *failure
+	remaining.Candidates = kept
+	return &remaining, false
 }
 
 // claimFailureNoteworthy decides whether the failure earns the error-level

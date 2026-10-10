@@ -200,7 +200,8 @@ func IsLifecycleOperation(value string) bool {
 		"wt-merge", "recover-task", "retarget-dependency", "narrow-inherited-dependencies", "apply-dependency-repair",
 		"repair-superseded-dependencies", "cancel-task", "supersede-task", "unblock-task",
 		"set-task-output", "handoff", "recover-agent", "transition-attempt",
-		"validate-payload", "replace-task", "record-rejection-rca", "resume-rejection-rca":
+		"validate-payload", "replace-task", "record-rejection-rca", "resume-rejection-rca",
+		"heal-orphaned-review-base":
 		return true
 	}
 	return false

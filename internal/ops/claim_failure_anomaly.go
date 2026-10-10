@@ -51,6 +51,9 @@ type ReviewClaimCandidateFailure struct {
 	Transient       bool
 	BoundaryVersion string
 	Recovery        string
+	// Orphaned marks a review-boundary repair whose base left the integration
+	// branch, or an unsettled heal of one; the reviewer supervisor heals it.
+	Orphaned bool
 }
 
 // ReviewClaimFailure wraps the error ClaimReviewerTask already returns so a
@@ -163,12 +166,14 @@ func reviewClaimRecoveryHint(err error) string {
 // class is the branch that removed it, not a re-inspection of the error, and the
 // boundary version is read before any transition the branch then applies.
 func newReviewClaimCandidateFailure(task *models.Task, class string, transient bool, err error) ReviewClaimCandidateFailure {
+	var repairNeeded *ReviewBoundaryRepairNeededError
 	return ReviewClaimCandidateFailure{
 		TaskID:          task.ID,
 		Class:           class,
 		Transient:       transient,
 		BoundaryVersion: ReviewClaimBoundaryVersion(task),
 		Recovery:        reviewClaimRecoveryHint(err),
+		Orphaned:        stderrors.As(err, &repairNeeded) && repairNeeded.Orphaned,
 	}
 }
 

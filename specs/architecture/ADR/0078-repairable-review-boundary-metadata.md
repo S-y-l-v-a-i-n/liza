@@ -2,7 +2,7 @@
 
 ## Status
 
-ACCEPTED
+ACCEPTED. Amended by [ADR-0200](0200-orphaned-review-base-heal.md): a `base_commit` that is no longer on the integration branch has no metadata-only repair and is healed or routed by the engine.
 
 ## Context
 

@@ -37,6 +37,31 @@ func (g *Git) PatchID(commit string) (string, error) {
 	return fields[0], nil
 }
 
+// RangeCommits lists the commits in base..head, oldest first, and reports
+// whether any of them is a merge commit.
+func (g *Git) RangeCommits(base, head string) ([]string, bool, error) {
+	if base == "" || head == "" {
+		return nil, false, fmt.Errorf("commit range requires non-empty base and head")
+	}
+	output, err := g.exec("rev-list", "--reverse", "--parents", "--end-of-options", base+".."+head)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to list commits in %s..%s: %w", base, head, err)
+	}
+	var commits []string
+	merges := false
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		commits = append(commits, fields[0])
+		if len(fields) > 2 {
+			merges = true
+		}
+	}
+	return commits, merges, nil
+}
+
 // CommitsIn lists commit object IDs reachable from ref, newest first.
 func (g *Git) CommitsIn(ref string, limit int) ([]string, error) {
 	if ref == "" {

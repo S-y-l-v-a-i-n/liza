@@ -10,6 +10,7 @@ import (
 
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/errors"
+	"github.com/liza-mas/liza/internal/filelock"
 	"github.com/liza-mas/liza/internal/git"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
@@ -31,14 +32,25 @@ type UpdateReviewCommitResult struct {
 // resubmission boundary: if a reviewer has claimed the task, their claim is
 // released so the task returns to submitted state for a fresh review pass.
 // No terminal I/O.
-func UpdateReviewCommit(projectRoot, taskID, changedBy string) (*UpdateReviewCommitResult, error) {
+func UpdateReviewCommit(projectRoot, taskID, changedBy string) (result *UpdateReviewCommitResult, err error) {
 	if taskID == "" {
 		return nil, &PreconditionError{Reason: "task ID is required"}
 	}
 	if changedBy == "" {
 		changedBy = "human"
 	}
+	// The per-task lock keeps this read of worktree HEAD out of an orphaned-base
+	// heal's rebase, which holds the same lock until its boundary is published.
+	lock := filelock.New(claimTaskWorktreeLockPath(paths.New(projectRoot).StatePath(), taskID))
+	err = lock.WithLockOperation("update-review-commit", func() error {
+		var inner error
+		result, inner = updateReviewCommitLocked(projectRoot, taskID, changedBy)
+		return inner
+	})
+	return result, err
+}
 
+func updateReviewCommitLocked(projectRoot, taskID, changedBy string) (*UpdateReviewCommitResult, error) {
 	lp := paths.New(projectRoot)
 	bb := db.For(lp.StatePath())
 

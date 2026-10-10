@@ -227,6 +227,8 @@ If an external rebase or operator repair changes the worktree after submission, 
 
 `update-review-commit` is also the narrow degraded-state repair for a submitted/reviewing task whose `review_commit` is missing while its task worktree still exists. The input state violates the submitted/reviewing boundary invariant; the command repairs it by setting `review_commit` from worktree HEAD, setting `base_commit` from the effective merge-base, and recording the missing old boundary in audit history.
 
+It is not the repair for an *orphaned* base, one no longer on the integration branch after a rolled-back or redone merge or a rewrite: the merge-base it records would pull the orphan's content into the review range. Review assignment reports an orphaned base first, and the reviewer supervisor heals it ([ADR-0200](../architecture/ADR/0200-orphaned-review-base-heal.md)): for a clean submitted task with no approvals and no merge in its range, `git rebase --onto <integration> <base_commit>` replays only the task's commits, which must keep their count and per-commit patch identities; submission's checks and fresh acceptance evidence then run, and the new boundary is recorded for a fresh review. Any other case leaves the worktree untouched and moves the task to `INTEGRATION_FAILED`, with that `rebase --onto` repair in `integration_failure.detail`.
+
 ---
 
 ## Integration Protocol

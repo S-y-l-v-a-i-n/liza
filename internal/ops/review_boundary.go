@@ -21,6 +21,30 @@ type ReviewBoundaryRepairNeededError struct {
 	TaskID       string
 	Reason       string
 	RecoveryHint string
+	// Orphaned marks a base_commit that is no longer on the integration
+	// branch: no metadata-only repair exists, so the boundary is healed by
+	// HealOrphanedReviewBase or routed to integration recovery (D-26).
+	Orphaned bool
+}
+
+// reviewBaseOrphaned reports whether base resolves, is an ancestor of review,
+// and is not an ancestor of the integration ref. Any Git error, including an
+// unresolvable base, answers false: the regular boundary checks then report
+// it. Assignment runs this under the state lock, so it costs two probes.
+func reviewBaseOrphaned(g *gitpkg.Git, base, review, integration string) bool {
+	onTask, err := g.IsAncestor(base, review)
+	if err != nil || !onTask {
+		return false
+	}
+	onIntegration, err := g.IsAncestor(base, integration)
+	return err == nil && !onIntegration
+}
+
+// orphanedBaseRepairCommand is the manual repair for an orphaned base: replay
+// only the task's own commits onto integration, then record the boundary.
+func orphanedBaseRepairCommand(task *models.Task, integrationBranch string) string {
+	return fmt.Sprintf("git -C %s rebase --onto %s %s, then run %s",
+		optionalValue(task.Worktree), integrationBranch, optionalValue(task.BaseCommit), brand.Command("update-review-commit", task.ID))
 }
 
 func (e *ReviewBoundaryRepairNeededError) Error() string {
@@ -31,6 +55,17 @@ func (e *ReviewBoundaryRepairNeededError) Error() string {
 // point them at the same commit currently checked out in the task worktree and
 // the current effective review base.
 func validateReviewBoundaryForAssignment(projectRoot string, state *models.State, task *models.Task) error {
+	// An orphaned base invalidates the boundary whatever the evidence says, and
+	// evidence is regenerated on the repaired boundary, so it is reported first.
+	if task.Worktree != nil && task.ReviewCommit != nil && task.BaseCommit != nil &&
+		reviewBaseOrphaned(gitpkg.New(projectRoot), *task.BaseCommit, *task.ReviewCommit, state.Config.IntegrationBranch) {
+		return &ReviewBoundaryRepairNeededError{
+			TaskID:       task.ID,
+			Reason:       fmt.Sprintf("base_commit %s is no longer on integration branch %s", *task.BaseCommit, state.Config.IntegrationBranch),
+			RecoveryHint: orphanedBaseRepairCommand(task, state.Config.IntegrationBranch),
+			Orphaned:     true,
+		}
+	}
 	if task.Worktree != nil || task.AcceptanceSource != nil {
 		if err := validateAcceptanceForAssignment(projectRoot, state, task); err != nil {
 			return err

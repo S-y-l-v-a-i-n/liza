@@ -175,7 +175,9 @@ receipt, advances revision and clears the marker in one state transaction.
 An interrupted preparation reports `effects=unknown` and `requery`; it does
 not authorize repeating arbitrary setup, tests, deletion or merge. There are two
 exceptions, both described for merge below: an effect proven by a durable,
-task-attributed record, and a merge effect proven absent.
+task-attributed record, and a merge effect proven absent. The orphaned-base
+heal (`heal-orphaned-review-base`, ADR-0200) settles its own preparation the
+same way, from Git and the preparation's payload digest, under its task lock.
 When an invocation returns a normal error before committing its transition,
 it may retire only the preparation it successfully reserved, in a blackboard
 transaction that verifies current authority while holding the project lifecycle

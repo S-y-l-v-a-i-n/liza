@@ -359,7 +359,21 @@ func claimReviewerTask(input ClaimReviewerTaskInput, invocation *ownershipInvoca
 					return err
 				}
 				if _, err := checkRequest(task, request, state.Agents); err != nil {
-					return err
+					if preparation != nil || !orphanedBaseHealPending(task) {
+						return err
+					}
+					// An unsettled heal reserves only its own task: name it for
+					// the supervisor's heal, which settles it, and keep claiming.
+					reviewBoundaryErr = err
+					if !slices.Contains(repairNeededTaskIDs, task.ID) {
+						repairNeededTaskIDs = append(repairNeededTaskIDs, task.ID)
+					}
+					failure := newReviewClaimCandidateFailure(task, ReviewClaimClassReviewBoundaryRepair, false, err)
+					failure.Orphaned = true
+					failure.Recovery = orphanedBaseRepairCommand(task, state.Config.IntegrationBranch)
+					candidateFailures = appendReviewClaimCandidateFailure(candidateFailures, failure)
+					candidates = removeCandidate(candidates, task)
+					continue
 				}
 
 				if err := validateReviewBoundaryForAssignment(input.ProjectRoot, state, task); err != nil {

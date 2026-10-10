@@ -50,6 +50,17 @@ func (g *Git) RebaseOntoWithOptions(wtPath string, baseBranch string, opts Rebas
 		args = append(args, "--autostash")
 	}
 	args = append(args, baseBranch)
+	return runRebase(wtPath, args)
+}
+
+// RebaseOntoUpstream replays only upstream..HEAD onto newBase
+// (`git rebase --onto newBase upstream`), leaving out every commit reachable
+// from upstream. Errors are classified as for RebaseOnto.
+func (g *Git) RebaseOntoUpstream(wtPath, newBase, upstream string) error {
+	return runRebase(wtPath, []string{"rebase", "--onto", newBase, upstream})
+}
+
+func runRebase(wtPath string, args []string) error {
 	rawOutput, err := gitenv.CombinedOutput(wtPath, args...)
 	if err != nil {
 		out := string(rawOutput)

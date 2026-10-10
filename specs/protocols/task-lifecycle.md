@@ -429,6 +429,7 @@ retargets the original's consumers in one transaction. See
 | Code Reviewer and Coder deadlocked (5 cycles) | Planner intervenes (see Review Deadlock Protocol) |
 | Integration failed | Task reclaimable with integration-fix scope |
 | Review boundary metadata stale | Operator/supervisor runs `liza update-review-commit <task-id>`; task remains submitted/reviewable |
+| Review base orphaned (no longer on the integration branch) | Reviewer supervisor heals it in place, or routes it to `INTEGRATION_FAILED` with the `rebase --onto` repair (ADR-0200) |
 | Two coders failed same task | Hypothesis exhaustion → mandatory rescope |
 
 ### Review Budget Exhaustion Protocol

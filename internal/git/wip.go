@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // interruptedOperationMarkers are the per-worktree git-dir entries Git leaves
@@ -47,6 +48,39 @@ func (g *Git) InterruptedOperation(wtPath string) (string, error) {
 		return "conflict resolution", nil
 	}
 	return "", nil
+}
+
+// InterruptedRebase describes a rebase left in progress in a worktree.
+type InterruptedRebase struct {
+	HeadName string // branch ref being rewritten
+	OrigHead string // HEAD when the rebase started
+}
+
+// GetInterruptedRebase returns the rebase in progress in wtPath, or nil when
+// none is. Both rebase backends record head-name and orig-head.
+func (g *Git) GetInterruptedRebase(wtPath string) (*InterruptedRebase, error) {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		stateDir, err := g.execInDir(wtPath, "rev-parse", "--git-path", dir)
+		if err != nil {
+			return nil, err
+		}
+		if !filepath.IsAbs(stateDir) {
+			stateDir = filepath.Join(wtPath, stateDir)
+		}
+		if _, err := os.Stat(filepath.Join(stateDir, "head-name")); os.IsNotExist(err) {
+			continue
+		}
+		var fields [2]string
+		for i, name := range []string{"head-name", "orig-head"} {
+			data, err := os.ReadFile(filepath.Join(stateDir, name))
+			if err != nil {
+				return nil, fmt.Errorf("inspect %s/%s: %w", dir, name, err)
+			}
+			fields[i] = strings.TrimSpace(string(data))
+		}
+		return &InterruptedRebase{HeadName: fields[0], OrigHead: fields[1]}, nil
+	}
+	return nil, nil
 }
 
 // CommitAllWIP stages every change in a worktree, tracked and untracked, and
