@@ -5,7 +5,9 @@
 ACCEPTED. Extends [ADR-0181](0181-provider-output-dependencies.md) and
 [ADR-0193](0193-descendant-provider-dependencies.md).
 Amended by [ADR-0196](0196-plan-replacement-reservation-placement.md) for
-atomic plan-declared placement transfer.
+atomic plan-declared placement transfer, and by
+[ADR-0199](0199-human-decisions-before-freeze-and-reviewed-correction-placement.md)
+for reviewed correction placement applied at hand-off.
 
 ## Context
 

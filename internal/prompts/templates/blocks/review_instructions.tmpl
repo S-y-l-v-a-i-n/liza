@@ -112,6 +112,7 @@ REVIEW CHECKLIST:
 | Dependency order | Tasks have circular or missing dependencies |
 | Executable dependency proof | Plan claims sibling child-task ordering without output[].depends_on sibling indexes, claims child ordering inherited across planning-task dependencies when the dependency did not execute the same transition name and output[].task_depends_on does not name existing concrete task IDs, or requires a concrete dependency target that does not exist without marking the planning task BLOCKED |
 | Shared-file dependency | Two tasks modify the same file but lack depends_on between them — parallel coders will hit merge conflicts |
+{{template "corrective-placement-row"}}
 | Spec compliance matrix | Plan has no "## Spec Compliance Matrix" section, or matrix has GAP rows, or matrix omits spec requirements, or matrix task mappings are inaccurate |
 | output[] populated | Task has no output[] entries (planner must call {{binaryName}} set-task-output --json) |
 | Plan file location | Plan artifact not in diff at specs/plans/{{.GoalSlug}}/TIMESTAMP-{{.TaskID}}.md |
@@ -332,11 +333,13 @@ REVIEW CHECKLIST:
 | validation command shape | A validation[] command is not single-purpose and agent-executable. Forbidden validation command shapes: `cd ... &&`, command substitution/backticks, polling or tail pipelines, and task artifact paths outside the worktree. |
 | Dependency ordering | Output[] entries have circular, missing, or superfluous dependencies — an edge naming no consumed artifact, or an inherited whole-phase barrier |
 | Shared-file dependencies | Two output[] entries may modify the same files without depends_on |
+| Writer-order completeness | A rule ordering shared-file writers gives no position for a later correction writer and names no human ruling |
 | Critical path | A client waits on its provider's implementation where the frozen contract and contract-derived fixtures suffice; a contract-first client lacks a verification task that depends on client and provider and that every consumer of the client's behavior depends on; a consumed fixture is bundled with a later proof; or several scopes write one shared file (migration, test file, registry) in series without weighing a per-scope split |
 | arch_ref set | Output[] entries missing arch_ref pointing to the architecture document |
 | Spec alignment | Architecture decisions contradict or ignore spec requirements |
 | Provider freeze | Early epic Provider Ask Inventory coverage is not reconciled against assigned epics and source obligations; declared asks are unavailable, or an ask lacks a provider answer or concrete deferral with allocated investigation/correction and a legal affected-scope wait |
 {{- if .DirectCodingAllocationAvailable}}
+{{template "corrective-placement-row"}}
 | Direct coding allocation | Direct output does not use one exact Scope, flat entries all coding_allocation: true sharing arch_ref, or each exact plan_ref lacks a strict Acceptance Contract, future coder-authored manifest path, owned_files or nonempty canonical validation; design/allocation or writer waits are unreviewed, RCA-required defects skip code-planning, or manual handoff disposition is bypassed |
 {{- else}}
 | Direct coding unavailable | Output uses coding_allocation despite this frozen topology having no direct coding route |
@@ -458,6 +461,11 @@ rejection time, and `timeout_seconds` is reported for visibility only.
 | Proof stage | Evidence is demanded at the wrong stage, e.g. a final-target test made a pre-coding gate without a concrete dependency reason |
 | Child feasibility | A child's frozen files or preserve directive exclude what its obligations need (tests, acceptance manifest, a required correction), or an unchecked existing-source premise restricts it; only an unfinished provider's delivery is deferrable |
 | Known consumers | An owned shared interface omits or contradicts a merged consumer's need, and no allocated correction or investigation holds the affected scope; a gap note alone does not suffice |
+| Human-owned decision | An output relies on a human-owned decision without a recorded ruling or a declared wait on an allocated investigation, correction or decision; asking is no hold |
+{{- end -}}
+
+{{- define "corrective-placement-row" -}}
+| Corrective placement | A correction writer in an ordered shared-file chain lacks Placement, omits a started or merged predecessor or a named successor, breaks a fixed or merged slot or the rule, or is not the earliest legal slot |
 {{- end -}}
 
 {{- define "finding-boundary" -}}

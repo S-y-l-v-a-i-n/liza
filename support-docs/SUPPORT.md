@@ -162,6 +162,11 @@ already select the correction's outputs by index, add
 `--provider-max-outputs <n>` so those selections cover every output. Cancelling
 or superseding a reserved correction is refused; `--release` withdraws the
 placement first. A writer that has started cannot be placed.
+The correction's plan or direct allocation records a reviewed `## Placement`
+when the chain's ordering rule states a correction case. At hand-off the
+orchestrator reserves each named successor that was never claimed, and passes
+only after all of them hold. A rule without a correction case, no legal slot,
+or a started successor still needs a human decision.
 
 If every mutation fails with `lease_expires without assigned_to: <task-id>`,
 that task carries half an ownership tuple written by an older binary. Global

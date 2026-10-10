@@ -71,6 +71,10 @@ A writer inserted ahead of an existing one is placed with `provider_reservations
 reserved writer stays unclaimable until every child the provider generates at
 the transition has merged, however many outputs it authors
 ([ADR-0195](../architecture/ADR/0195-provider-reservations-for-inserted-writers.md)).
+A correction writer's plan or direct allocation records a reviewed `## Placement`
+under the governing rule's correction case; the orchestrator rechecks each named
+successor is unstarted and reserves it before passing the hand-off
+([ADR-0199](../architecture/ADR/0199-human-decisions-before-freeze-and-reviewed-correction-placement.md)).
 
 This is an explicit cross-stage exception, leaving ordinary downstream
 `depends_on`/`task_depends_on` invalid. Authoring, handoff and crash recovery

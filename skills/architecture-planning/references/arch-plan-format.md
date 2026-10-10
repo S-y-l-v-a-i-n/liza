@@ -29,7 +29,7 @@ New scope-local constraints plus IDs and direct-reference IDs for inherited cons
 - **ASM-001**: <architectural assumption> — *Why*: <reasoning> — Confidence: HIGH | MEDIUM | LOW
 
 ### Open Questions
-- **OQ-001**: <structural question> — *Impact*: <what stays ambiguous for code-planners>
+- **OQ-001**: <question> — *Owner*: human | <stage> — *Impact*: <affected outputs> — *Settles*: <stage | decision ref | output indexes awaiting its allocated investigation, correction or decision>
 
 ---
 

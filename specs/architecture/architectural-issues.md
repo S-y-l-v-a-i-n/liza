@@ -470,7 +470,7 @@ Implicit dependencies that constrain system behavior.
 
 **Implication:** When specs incomplete or human constrained, throughput collapses rather than degrading gracefully.
 
-**Addressed by:** BLOCKED resolution via `human_notes`.
+**Addressed by:** BLOCKED resolution via `human_notes`. Human-owned decisions known at authoring time are Design prerequisites that settle or are explicitly awaited before dependent outputs freeze, with planning doers able to raise `AWAITING HUMAN` ([ADR-0199](ADR/0199-human-decisions-before-freeze-and-reviewed-correction-placement.md)); decisions discovered later still use BLOCKED resolution.
 
 ### Well-Formed Blackboard State
 

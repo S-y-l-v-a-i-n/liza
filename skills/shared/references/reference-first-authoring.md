@@ -30,8 +30,7 @@ Epics record `Provider Ask Inventory` before decomposition: interface ID, consum
 epic/ref, source-backed operations, fields and statuses (or explicit none). Interface
 owners reconcile it with assigned epics/source obligations and merged consumers,
 answering or concretely deferring each ask. Missing asks block affected freeze. Unsettled
-needs are design prerequisites: allocate correction/investigation and legal
-corrected-contract hold (per Proof Stage), never a frozen gap note. Later consumers
+needs are Design prerequisites, not frozen gap notes. Later consumers
 route gaps to owners.
 Interface strings create no executable dependency edges.
 
@@ -54,6 +53,8 @@ acceptance, distinguish a human requirement, a necessary implication, a design
 choice, and an unresolved assumption. A consequential unresolved commitment is
 recorded once, in the owning artifact: source anchor or decision, claim, owner,
 evidence needed, affected outputs, settling stage. Downstream cites it. A
+human-owned one (behavior, NFR, policy, a rule's missing case) is a Design
+prerequisite of its affected outputs; asking neither settles nor holds it. A
 consequential API or platform assumption is checked against the implementation,
 primary documentation, or a targeted probe — a test of an invented adapter
 proves nothing about the real one.
@@ -73,7 +74,7 @@ Priority, readiness, and proof stage are separate properties:
 
 | Proof kind | Treatment |
 |---|---|
-| Design prerequisite | Resolve before dependent architecture, or allocate a bounded investigation with an explicit hold. |
+| Design prerequisite | Resolve before affected outputs freeze, or allocate a bounded investigation, correction or decision they legally await. |
 | Implementation prerequisite | Affected work waits for the delivered provider or harness; unrelated work proceeds. |
 | Final acceptance evidence | Named owner, prerequisites, explicit final hold; not a pre-coding gate without a concrete dependency reason. |
 

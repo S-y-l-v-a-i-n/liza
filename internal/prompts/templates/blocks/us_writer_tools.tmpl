@@ -9,8 +9,8 @@ US WRITER TOOLS:
   {{binaryName}} write-checkpoint {{.TaskID}} --agent-id {{.AgentID}} --intent "<what>" --validation-plan "<how to verify>" --files-to-modify "<file1>" --json
 - {{binaryName}} handoff — Context near exhaustion (~90%)
   {{binaryName}} handoff {{.TaskID}} "<what is done>" "<exact next step>" --agent-id {{.AgentID}} --json
-- {{binaryName}} mark-blocked — Cannot proceed
-  {{binaryName}} mark-blocked {{.TaskID}} --agent-id {{.AgentID}} --reason "<what is blocking>" --questions "<q1>" --questions "<q2>" --json
+- {{binaryName}} mark-blocked — Cannot proceed; --human-action raises AWAITING HUMAN
+  {{binaryName}} mark-blocked {{.TaskID}} --agent-id {{.AgentID}} --reason "<what is blocking>" --questions "<q1>" --questions "<q2>" [--human-action "<decision only a human can make>"] --json
   If a command failure is the blocker, `--reason` MUST include the exact failing command and stderr/error text. Do NOT infer root cause without a captured failure.
   For dependency-graph repair, pass a command-free `apply-dependency-repair` JSON request through --repair-request-file; do not encode dependency repairs as command sequences. Use individual --repair-* fields only for other repairs.
 {{- end -}}
