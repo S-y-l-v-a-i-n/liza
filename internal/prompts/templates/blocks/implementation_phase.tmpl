@@ -54,7 +54,7 @@ tests, and requirement-to-task allocation. Cite inherited requirements and
 architecture; do not restate their prose. Every new plan must include the strict
 `## Source References` section with non-empty direct references and obligation coverage.
 Carry each requirement's effective priority (Must/Should/Could/Won't) into the matrix rows
-and outputs; keep optional work separately deferrable. For every depends_on, task_depends_on,
+and outputs; keep optional work separately deferrable: {{template "optional-prerequisite"}}. For every depends_on, task_depends_on,
 and inherit_inputs choice, state in the plan the earliest artifact that supplies the input (a
 merged contract or fixture before an implementation); an output that needs
 nothing from an upstream phase must not inherit its whole barrier (see inherit_inputs in TOOLS).
@@ -197,7 +197,7 @@ copy them. Every new epic must include the strict `## Source References` section
 with non-empty direct references and obligation coverage. Map each capability to its
 source requirements and keep their priority at item level; expose a missing product policy
 before binding a capability rather than strengthening the requirement (contract: Priority,
-Commitments and Proof Stage).
+Commitments and Proof Stage). Optional prerequisites: {{template "optional-prerequisite"}}.
 Before downstream decomposition, record a `Provider Ask Inventory` in the epic:
 interface ID, consumer epic/ref, required operations, fields and statuses, with source
 anchors (explicitly record none when no provider is consumed). Inventory needs are
@@ -287,7 +287,7 @@ metadata outside it; future bounded correction cannot change the surrounding Sco
 output manifest. Children see only their assigned
 Scope and selected spans; other sections remain pinned pointers. Map components, interfaces, and proof
 obligations to the requirements they serve; separate the minimum mechanism Must scope
-needs from optional extensions; check a consequential platform or API assumption against
+needs from optional extensions; on output paths, {{template "optional-prerequisite"}}; check a consequential platform or API assumption against
 the implementation, primary documentation, or a targeted probe before it becomes an
 interface guarantee; and place each proof at its stage — design prerequisite,
 implementation prerequisite, or final acceptance evidence — with a named owner and
@@ -317,7 +317,8 @@ DIRECT CODING ALLOCATION: Opt in only for one exact Scope with fully reviewed de
 and allocation. Emit flat entries all marked `coding_allocation: true`, sharing the
 same exact `arch_ref`; each `plan_ref` names an exact coding-unit heading with a strict
 Acceptance Contract, future coder-authored manifest path, owned_files and nonempty
-canonical validation. Preserve dependencies and writer waits. Defects needing
+canonical validation. Preserve dependencies and writer waits. Per-task fixed cost:
+{{template "fixed-cost-bundle"}}. Defects needing
 `rca_required` retain code-planning; fanout retains specialized architecture/code-planning.
 The named direct route still requires manual orchestrator handoff disposition.
 {{template "corrective-placement"}}

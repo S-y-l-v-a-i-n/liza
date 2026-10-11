@@ -23,6 +23,7 @@ MASTER CODE-PLANNING BOUNDARY:
   child scope must diagnose and repair a defect; `false` for feature work and
   deterministic changes whose correctness does not depend on diagnosis.
 - If unresolved diagnosis prevents a safe boundary, group the affected scope or mark the master task BLOCKED. Never encode a speculative causal split.
+- Optional prerequisites: {{template "optional-prerequisite"}}.
 
 Work only in `{{.Worktree}}`. Create one timestamped master artifact and its
 task-output JSON under `specs/plans/{{.GoalSlug}}/`, using `{{.TaskID}}` in both

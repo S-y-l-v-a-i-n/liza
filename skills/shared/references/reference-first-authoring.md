@@ -44,9 +44,11 @@ waives correctness, safety, or acceptance obligations of included work.
 Splitting or merging keeps constituent priorities; a shared prerequisite a Must
 needs stays necessary without promoting optional features that share it. Never
 relabel scope: a Must that needs a Should/Could or Won't capability is a source
-conflict for the human. A missing label is neither Must nor optional — resolve
-it at the source; frozen runs keep their obligations until a reviewed scope
-decision.
+conflict for the human. This holds along dependency paths: a Must output that
+transitively waits on optional output names the shared prerequisite it needs, or
+raises the conflict; a wait that needs nothing is removed. A missing label is
+neither Must nor optional — resolve it at the source; frozen runs keep their
+obligations until a reviewed scope decision.
 
 Where it affects scope, observable behavior, feasibility, ordering, or
 acceptance, distinguish a human requirement, a necessary implication, a design

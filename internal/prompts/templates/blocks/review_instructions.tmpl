@@ -106,9 +106,10 @@ the runtime can check only the declared set.
 REVIEW CHECKLIST:
 | Gate | Reject if |
 |------|-----------|
-| Single intent per task | Task description has conjunctions ("X and Y and Z") indicating multiple intents bundled together |
+| Single intent per task | Task description has conjunctions ("X and Y and Z") indicating multiple intents bundled together, other than a fixed-cost bundle within its limits (Per-task fixed cost row) |
 | Falsifiable done_when | done_when is vague or untestable |
-| Scope smell | done_when spans >2 packages or >4 conditions — verify the task has a single intent; reject with split suggestion if composite |
+| Scope smell | done_when spans >2 packages or >4 conditions — verify the task has a single intent; reject with split suggestion if composite and not a fixed-cost bundle within its limits |
+{{template "fixed-cost-row"}}
 | Dependency order | Tasks have circular or missing dependencies |
 | Executable dependency proof | Plan claims sibling child-task ordering without output[].depends_on sibling indexes, claims child ordering inherited across planning-task dependencies when the dependency did not execute the same transition name and output[].task_depends_on does not name existing concrete task IDs, or requires a concrete dependency target that does not exist without marking the planning task BLOCKED |
 | Shared-file dependency | Two tasks edit one shared file or definition without depends_on and the plan does not state that they commute ({{template "commuting-edits"}}), or an edge's only reason is overlap of edits stated to commute; or a chain joiner skips re-weighing its seam |
@@ -342,6 +343,7 @@ REVIEW CHECKLIST:
 {{- if .DirectCodingAllocationAvailable}}
 {{template "corrective-placement-row"}}
 {{template "validation-scope-row"}}
+{{template "fixed-cost-row"}}
 | Direct coding allocation | Direct output does not use one exact Scope, flat entries all coding_allocation: true sharing arch_ref, or each exact plan_ref lacks a strict Acceptance Contract, future coder-authored manifest path, owned_files or nonempty canonical validation; design/allocation or writer waits are unreviewed, RCA-required defects skip code-planning, or manual handoff disposition is bypassed |
 {{- else}}
 | Direct coding unavailable | Output uses coding_allocation despite this frozen topology having no direct coding route |
@@ -458,7 +460,7 @@ rejection time, and `timeout_seconds` is reported for visibility only.
 
 {{- define "handoff-review-rows" -}}
 | Handoff usable | The next role cannot act from the assigned scope and references without inventing policy or waiting on an unallocated prerequisite |
-| Priority propagation | An inherited Must/Should/Could/Won't label is dropped or changed, Must coverage is missing, Won't scope is included, or optional scope is made a required handoff condition |
+| Priority propagation | An inherited Must/Should/Could/Won't label is dropped or changed, Must coverage is missing, Won't scope is included, or optional scope is made a required handoff condition; or this rule is not applied: {{template "optional-prerequisite"}} |
 | Consequential commitment | A guarantee, constraint, or platform assumption is presented as established without owner and evidence |
 | Proof stage | Evidence is demanded at the wrong stage, e.g. a final-target test made a pre-coding gate without a concrete dependency reason |
 | Child feasibility | A child's frozen files or preserve directive exclude what its obligations need (tests, acceptance manifest, a required correction), or an unchecked existing-source premise restricts it; only an unfinished provider's delivery is deferrable |
@@ -480,6 +482,18 @@ each keeps the other's behavior, they claim no common key, slot, name or positio
 
 {{- define "seam-reassessment" -}}
 A writer joining an ordered chain on a non-commuting definition re-weighs its seam against the chain's writers (merged, started, unstarted, itself); once outgrown, it raises an additive-seam correction to the owner (allocate, or mark-blocked requesting it) under the rule's correction case, or records why the chain still wins.
+{{- end -}}
+
+{{- define "fixed-cost-bundle" -}}
+each coding task pays a fixed cost whatever its size (claim, context load, submit admission running its validation, review, merge), so a linear run of units — each the sole dependent of the one before, no other task or plan needing an intermediate output — that builds one deliverable in the same owned files or module is one task whose single intent is that deliverable; independent concerns and separately required deliverables (e2e, docs) stay separate tasks, and the plan may still split for a diff too large to review as one or a named regression-attribution risk
+{{- end -}}
+
+{{- define "fixed-cost-row" -}}
+| Per-task fixed cost | A run the fixed-cost rule bundles is split with no named reason, or a bundle exceeds the rule's limits: {{template "fixed-cost-bundle"}} |
+{{- end -}}
+
+{{- define "optional-prerequisite" -}}
+a Must output reaching a Should/Could output by any local path (depends_on, task_depends_on, provider_dependencies, inherit_inputs, transitively) names the Must consumer and the shared prerequisite it needs, which stays necessary while the optional feature stays deferrable; needing the optional capability itself is a source conflict for the human, a wait needing nothing is removed, and a target whose priority the plan cannot see is disclosed as unchecked
 {{- end -}}
 
 {{- define "finding-boundary" -}}

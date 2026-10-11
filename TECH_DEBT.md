@@ -2,6 +2,25 @@
 
 Deliberate debt with payback triggers. See CORE.md Rule 3 (DoD) for policy.
 
+## Unstarted serial children cannot be bundled in flight
+
+**What:** ADR-0202 makes planners bundle a linear run of units into one task,
+but a merged plan's already-allocated chain cannot be merged into one coding
+task. Provider selectors follow only a unique same-slot successor
+(`ProviderChildSuccessor`), only `replace-task` records that lineage, one source
+to one replacement, and a task carries one acceptance source. D-99 fix (c) needs
+many-to-one slot lineage, multi-section acceptance and a reviewed bundle
+allocation. Today the only path is reviewed `replan` with consumer retirement.
+
+**Why deferred:** it changes provider-slot identity and acceptance
+immutability, both invariant-bearing, for a case whose only measured instance
+had no critical-path benefit (DEV-766: slack 6 of 31 links). Human scope
+decision of 2026-10-11.
+
+**Payback trigger:** a run where unstarted serial children of one plan sit
+within about two links of the critical path and reviewed `replan` is too slow
+to relieve it.
+
 ## Non-commuting shared-definition writers still code serially
 
 **What:** ADR-0201 lets commuting shared-file writers code in parallel, but

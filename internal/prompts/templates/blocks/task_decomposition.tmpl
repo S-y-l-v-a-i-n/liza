@@ -1,14 +1,14 @@
 {{- define "task-decomposition" -}}
 
 TASK DECOMPOSITION PRINCIPLE:
-Each coding task MUST have a single intent — one observable behavior change.
+Each coding task MUST have a single intent — one observable behavior change, or the one deliverable of a fixed-cost bundle (below).
 Smell: if the task description contains conjunctions ("X and Y and Z"), it is composite.
 Smell: if done_when lists assertions across more than 2 packages or >4 conditions, the task is too broad.
 Atomic exceptions exist (e.g., "add model field and update serializer") — use judgment.
 When a spec step is too large for one task, split it. When two spec steps are small and
 tightly coupled, combining them is acceptable — but the intent must still be singular.
-Keep closely related changes together — splitting cohesive work adds overhead without
-reducing risk. Split at natural seams between independent concerns.
+Keep closely related changes together and split at natural seams between independent
+concerns. Per-task fixed cost: {{template "fixed-cost-bundle"}}.
 Encode every Scope task/code-plan wait: sibling depends_on, legal task_depends_on, or provider_dependencies (existing provider/configured per-subtask transition/selected outputs, even unborn). Only typed provider waits cross stages; ordinary downstream edges remain invalid. No missing edges/cycles, including future child production/inheritance; prose/merged architecture alone cannot schedule plan waits.
 Shared-file rule: two tasks editing one shared file or definition need depends_on
 unless the plan states their edits commute: {{template "commuting-edits"}}.

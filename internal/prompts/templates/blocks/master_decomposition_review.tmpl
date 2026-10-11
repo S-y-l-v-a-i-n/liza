@@ -35,6 +35,7 @@ MASTER CODE-PLANNING REVIEW BOUNDARY:
 - If diagnosis is unresolved, accept only a safely grouped scope or a BLOCKED
   master task. Do not establish or verify the root cause; that belongs to each
   specialized code-planning task classified `true`.
+- Reject a decomposition that does not apply: {{template "optional-prerequisite"}}.
 
 Verify HEAD equals `{{.ReviewCommit}}`, inspect changed paths and targeted diffs
 for `{{.BaseCommit}}..{{.ReviewCommit}}`, read the master artifact and adjacent

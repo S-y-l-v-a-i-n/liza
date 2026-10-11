@@ -929,7 +929,10 @@ func TestBuildPromptWithContext_DecompositionRootDoerMandate(t *testing.T) {
 			)
 			assertNotContains(t, prompt, "MASTER DECOMPOSITION REVIEW")
 			assertNotContains(t, prompt, "master-decomposition-review")
+			assertOptionalPrerequisiteOnce(t, prompt)
 			if tt.role == models.RoleCodePlanner {
+				// D-99: root code-planning outputs are plans, not coding units.
+				assertNotContains(t, prompt, "each coding task pays a fixed cost")
 				assertContainsAll(t, prompt,
 					"Classify RCA independently for every output",
 					"group the affected scope or mark the master task BLOCKED",
@@ -1014,7 +1017,9 @@ func TestBuildPromptWithContext_DecompositionRootReviewerReview(t *testing.T) {
 			)
 			assertNotContains(t, prompt, "MASTER DECOMPOSITION MANDATE")
 			assertNotContains(t, prompt, "master-decomposition-mandate")
+			assertOptionalPrerequisiteOnce(t, prompt)
 			if tt.role == models.RoleCodePlanReviewer {
+				assertNotContains(t, prompt, "| Per-task fixed cost |")
 				assertContainsAll(t, prompt,
 					"Review each output's RCA classification",
 					"Do not establish or verify the root cause",
@@ -1023,6 +1028,16 @@ func TestBuildPromptWithContext_DecompositionRootReviewerReview(t *testing.T) {
 				assertNotContains(t, prompt, "Plan file location")
 			}
 		})
+	}
+}
+
+// assertOptionalPrerequisiteOnce checks that a decomposition root receives the
+// D-99 optional-prerequisite rule through its production sections, once.
+func assertOptionalPrerequisiteOnce(t *testing.T, prompt string) {
+	t.Helper()
+	const rule = "names the Must consumer and the shared prerequisite it needs"
+	if n := strings.Count(prompt, rule); n != 1 {
+		t.Errorf("optional-prerequisite rule rendered %d times, want 1", n)
 	}
 }
 
