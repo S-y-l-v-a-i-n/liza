@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -29,6 +30,15 @@ type AcceptanceContract struct {
 	Validation     []string        `json:"validation" yaml:"validation"`
 	TimeoutSeconds int             `json:"timeout_seconds" yaml:"timeout_seconds"`
 	ApprovedProofs []ApprovedProof `json:"approved_proofs,omitempty" yaml:"approved_proofs,omitempty"`
+	// Deferred lists ascending indices into Validation whose regression-only
+	// commands admission skips; the engine's deferred-validation batch runs
+	// them on integration instead (ADR-0204). Manifest proofs cannot use them.
+	Deferred []int `json:"deferred,omitempty" yaml:"deferred,omitempty"`
+}
+
+// IsDeferred reports whether the reviewed contract defers command index i.
+func (contract *AcceptanceContract) IsDeferred(i int) bool {
+	return slices.Contains(contract.Deferred, i)
 }
 
 // ApprovedProof names an upstream-approved non-executable proof exception.
@@ -190,6 +200,14 @@ func validateAcceptanceContract(contract *AcceptanceContract, sources *Contract)
 			return fmt.Errorf("acceptance.validation[%d]: command must be non-empty and contain no NUL", i)
 		}
 	}
+	for i, index := range contract.Deferred {
+		if index < 0 || index >= len(contract.Validation) || (i > 0 && index <= contract.Deferred[i-1]) {
+			return fmt.Errorf("acceptance.deferred[%d]: require strictly ascending indices into validation", i)
+		}
+	}
+	if len(contract.Deferred) >= len(contract.Validation) {
+		return fmt.Errorf("acceptance.deferred: at least one validation command must stay executable at admission")
+	}
 	if contract.TimeoutSeconds < 1 || contract.TimeoutSeconds > AcceptanceMaxTimeoutSeconds {
 		return fmt.Errorf("acceptance.timeout_seconds: must be 1..%d", AcceptanceMaxTimeoutSeconds)
 	}
@@ -315,6 +333,8 @@ func ValidateAcceptanceManifest(contract *AcceptanceContract, manifest *Acceptan
 			}
 		} else if *mapping.CommandIndex >= len(contract.Validation) {
 			return fmt.Errorf("%s.command_index: outside canonical validation commands", field)
+		} else if contract.IsDeferred(*mapping.CommandIndex) {
+			return fmt.Errorf("%s.command_index: names a deferred command; a proof must run at admission", field)
 		}
 	}
 	// Follow declaration order for deterministic missing-field diagnostics.

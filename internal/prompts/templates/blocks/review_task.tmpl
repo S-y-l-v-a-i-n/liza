@@ -64,8 +64,14 @@ VALIDATED MAPPINGS:
 {{end -}}
 EXECUTION RESULTS:
 {{range $index, $result := .AcceptanceReceipt.Commands -}}
-- command[{{$index}}]: {{$result.Command}}; exit {{$result.ExitCode}}; {{$result.StartedAt}} → {{$result.FinishedAt}}
+- command[{{$.AcceptanceReceipt.CommandIndex $index}}]: {{$result.Command}}; exit {{$result.ExitCode}}; {{$result.StartedAt}} → {{$result.FinishedAt}}
 {{end -}}
+{{- if .AcceptanceReceipt.Deferred}}
+DEFERRED (not run at admission; the deferred-validation batch runs them on integration):
+{{range .AcceptanceReceipt.Deferred -}}
+- command[{{.Index}}]: {{.Command}}; deferred by {{.Authority}}
+{{end -}}
+{{- end}}
 Inspect full recorded, masked output: {{binaryName}} get tasks {{.TaskID}} --format json
 {{- else if .AcceptanceSource}}
 No acceptance receipt is available. Do not treat this strict task as evidenced; repair with

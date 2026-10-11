@@ -16,6 +16,9 @@ import (
 
 func TestMain(m *testing.M) {
 	clearAmbientFeatureGates()
+	// The detached runner re-executes os.Executable(), which is this test
+	// binary here; tests drive the runner directly instead.
+	startDeferredValidationProcess = func(string) error { return nil }
 	os.Exit(m.Run())
 }
 

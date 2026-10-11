@@ -76,8 +76,8 @@ evidence changed during the check. An unresolvable integration commit is
    obligation coverage before rebase or execution. Field diagnostics identify
    missing mappings, invalid proof files and unapproved exceptions.
 2. After the existing rebase, reload source and manifest at the actual candidate
-   boundary, require a clean worktree, and execute every canonical command with
-   the declared overall deadline and bounded masked output. Require unchanged
+   boundary, require a clean worktree, and execute every canonical command not
+   deferred (below) with the declared overall deadline and bounded masked output. Require unchanged
    HEAD and a clean worktree afterward. Execution occurs outside the state lock.
    A task declaring `runtime_inputs` acquires them here, after the clean-worktree
    check and before the first command: `single_use` instances are consumed
@@ -96,6 +96,25 @@ text, not command identity. State holds execution results because committing a r
 names its own containing commit would require circular commit identity.
 Precondition failures do not spend review cycles, release the doer, assign a
 reviewer or mark `INTEGRATION_FAILED`.
+
+### Deferred commands
+
+A command is deferred when the reviewed contract lists its index in `deferred`
+(authority `contract`) or an operator ruling in
+`config.deferred_validation.rulings` names the exact command (authority
+`operator`). A command a runtime input uses is never deferred: the contract may
+not defer it, and a ruling does not apply to it. No manifest proof may map to a
+contract-deferred index. Admission skips deferred commands, so `commands[]` holds
+the executed commands in canonical order, and `deferred[]` records each skipped
+one: `index`, masked `command`, `command_sha256`, `timeout_seconds` and
+`authority`. The submission result lists them as `deferred_commands`. Reviewer
+assignment requires each recorded deferral to be granted by the contract or a
+current ruling, every contract deferral to be recorded, and executed plus
+deferred commands to cover the canonical list. Withdrawing a ruling therefore
+requires fresh admission for receipts that relied on it; a ruling added later
+never invalidates an executed command. The MERGED write moves the deferrals to
+the goal's deferred-validation ledger, whose batch satisfies them on integration
+([ADR-0204](../architecture/ADR/0204-deferred-validation-tier.md)).
 
 Failed execution returns the failing command's combined stdout/stderr in the
 error, masked before an 8 KiB excerpt limit and explicitly marked if truncated.

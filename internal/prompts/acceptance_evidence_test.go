@@ -50,6 +50,39 @@ func TestAcceptanceEvidenceReviewerRendering(t *testing.T) {
 	}
 }
 
+// Executed results keep their canonical index across deferral gaps, and the
+// deferred commands are listed so the reviewer knows they did not run.
+func TestAcceptanceEvidenceReviewerRendersDeferredCommands(t *testing.T) {
+	now := time.Date(2026, 10, 10, 10, 0, 0, 0, time.UTC)
+	data := RoleContextData{
+		Role: "code-reviewer", TaskID: "task-42",
+		AcceptanceReceipt: &models.AcceptanceReceipt{
+			ManifestPath: "acceptance/boundary.json",
+			Commands: []models.AcceptanceCommandResult{
+				{Command: "unit-tests", StartedAt: now, FinishedAt: now},
+				{Command: "lint", StartedAt: now, FinishedAt: now},
+			},
+			Deferred: []models.AcceptanceDeferredCommand{
+				{Index: 1, Command: "whole-suite", Authority: models.AcceptanceDeferralContract},
+				{Index: 3, Command: "e2e-suite", Authority: models.AcceptanceDeferralOperator},
+			},
+		},
+	}
+	output, err := BuildRoleContext(data.Role, []string{"review-task"}, &data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"command[0]: unit-tests; exit 0", "command[2]: lint; exit 0",
+		"DEFERRED (not run at admission",
+		"command[1]: whole-suite; deferred by contract", "command[3]: e2e-suite; deferred by operator",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("review prompt missing %q: %s", want, output)
+		}
+	}
+}
+
 func TestAcceptanceEvidenceLegacyAndMissingReceiptRendering(t *testing.T) {
 	for _, role := range []string{"coder", "code-reviewer"} {
 		t.Run(role, func(t *testing.T) {

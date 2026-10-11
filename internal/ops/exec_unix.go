@@ -3,8 +3,10 @@
 package ops
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
+	"time"
 )
 
 // configProcessGroupKill sets up the command to run in its own process group
@@ -14,5 +16,22 @@ func configProcessGroupKill(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+}
+
+// reapProcessGroup kills what remains of the process group pid led (a
+// configProcessGroupKill command that already exited) and waits up to wait
+// for every member to be gone. It reports whether none survives.
+func reapProcessGroup(pid int, wait time.Duration) bool {
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	deadline := time.Now().Add(wait)
+	for {
+		if err := syscall.Kill(-pid, 0); errors.Is(err, syscall.ESRCH) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

@@ -469,7 +469,7 @@ rejection time, and `timeout_seconds` is reported for visibility only.
 {{- end -}}
 
 {{- define "validation-scope-row" -}}
-| Validation scope | A child's validation repeats a long shared suite (whole integration, e2e or eval run) without naming the changed code it covers; regression-only whole-suite runs belong to integration |
+| Validation scope | A child's validation lists a long shared suite (whole integration, e2e or eval run) that neither covers named changed code nor is in the contract's `deferred`, or defers a command a proof needs |
 {{- end -}}
 
 {{- define "corrective-placement-row" -}}

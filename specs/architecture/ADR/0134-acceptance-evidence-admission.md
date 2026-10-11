@@ -104,7 +104,7 @@ changes. Plans had copied whole long shared suites (real-database, e2e, eval run
 into every child for regression alone, so each admission, correction and repair
 re-ran them on the critical path (D-97). Code-planner and direct-allocation
 architect prompts state the scope rule, and their reviewers reject unscoped lists;
-whole-suite regression runs in goal integration. Admission and receipts are unchanged: every listed
-command still runs. A deferred validation tier (periodic batches whose receipts
-satisfy deferred commands, with merge bisect) is not adopted; see
-[TECH_DEBT.md](../../../TECH_DEBT.md#submit-admission-has-no-deferred-validation-tier).
+whole-suite regression runs in goal integration. A long shared regression-only
+suite may instead be listed once and deferred: admission skips it, the receipt
+certifies the deferral, and an engine batch with merge bisect satisfies it on
+integration ([ADR-0204](0204-deferred-validation-tier.md)).

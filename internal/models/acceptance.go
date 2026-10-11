@@ -1,6 +1,7 @@
 package models
 
 import (
+	"slices"
 	"time"
 
 	"github.com/liza-mas/liza/internal/referencecontract"
@@ -70,5 +71,64 @@ type AcceptanceReceipt struct {
 	ManifestPath string                                `yaml:"manifest_path" json:"manifest_path"`
 	ManifestBlob string                                `yaml:"manifest_blob" json:"manifest_blob"`
 	Mappings     []referencecontract.AcceptanceMapping `yaml:"mappings" json:"mappings"`
-	Commands     []AcceptanceCommandResult             `yaml:"commands" json:"commands"`
+	// Commands holds one result per executed (non-deferred) canonical command,
+	// in canonical order.
+	Commands []AcceptanceCommandResult `yaml:"commands" json:"commands"`
+	// Deferred lists the canonical commands admission skipped; the
+	// deferred-validation batch satisfies them on integration (ADR-0204).
+	Deferred []AcceptanceDeferredCommand `yaml:"deferred,omitempty" json:"deferred,omitempty"`
+}
+
+// CommandIndex returns the canonical validation index of Commands[i]:
+// deferred commands leave gaps in the executed order.
+func (r *AcceptanceReceipt) CommandIndex(i int) int {
+	index := 0
+	for next := 0; ; index++ {
+		if slices.ContainsFunc(r.Deferred, func(d AcceptanceDeferredCommand) bool { return d.Index == index }) {
+			continue
+		}
+		if next == i {
+			return index
+		}
+		next++
+	}
+}
+
+// AcceptanceDeferralAuthority names who deferred a canonical command.
+type AcceptanceDeferralAuthority string
+
+const (
+	// AcceptanceDeferralContract is a deferral the reviewed Acceptance
+	// Contract declares.
+	AcceptanceDeferralContract AcceptanceDeferralAuthority = "contract"
+	// AcceptanceDeferralOperator is a deferral an operator ruling grants for
+	// an exact command.
+	AcceptanceDeferralOperator AcceptanceDeferralAuthority = "operator"
+)
+
+// IsValid reports whether the authority is part of the persisted schema.
+func (a AcceptanceDeferralAuthority) IsValid() bool {
+	return a == AcceptanceDeferralContract || a == AcceptanceDeferralOperator
+}
+
+// AcceptanceDeferredCommand records one canonical command admission skipped.
+// Command is masked presentation; Index and CommandSHA256 bind identity.
+type AcceptanceDeferredCommand struct {
+	Index          int                         `yaml:"index" json:"index"`
+	Command        string                      `yaml:"command" json:"command"`
+	CommandSHA256  string                      `yaml:"command_sha256" json:"command_sha256"`
+	TimeoutSeconds int                         `yaml:"timeout_seconds" json:"timeout_seconds"`
+	Authority      AcceptanceDeferralAuthority `yaml:"authority" json:"authority"`
+}
+
+// MarshalYAML quotes the masked command for the reason given on
+// AcceptanceCommandResult.MarshalYAML.
+func (d AcceptanceDeferredCommand) MarshalYAML() (any, error) {
+	return map[string]any{
+		"index":           d.Index,
+		"command":         &yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: d.Command},
+		"command_sha256":  d.CommandSHA256,
+		"timeout_seconds": d.TimeoutSeconds,
+		"authority":       d.Authority,
+	}, nil
 }

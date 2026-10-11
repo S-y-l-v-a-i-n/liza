@@ -1437,7 +1437,20 @@ config:
   integration_branch: integration
   escalation_webhook: null      # Optional: URL for external notifications
   runtime_input_registry: config/runtime-inputs.yaml  # Optional: committed recipe registry (ADR-0169)
+  deferred_validation:          # Optional (ADR-0204); written by the operator-only deferred-validation commands
+    batch_every_merges: 5       # Forward merges per periodic batch; non-positive uses 5
+    setup_timeout_seconds: 1800 # Bound on post_worktree_cmd per batch probe; non-positive uses 1800
+    rulings:                    # Exact canonical commands strict admission defers on operator authority
+      - command: "make test-e2e"
+        ruling: "decision D-97"
+        recorded_at: 2026-10-10T10:00:00Z
 ```
+
+A strict task's `acceptance_receipt.deferred[]` lists the canonical commands
+admission skipped (`index`, masked `command`, `command_sha256`,
+`timeout_seconds`, `authority: contract|operator`); `commands[]` then holds only
+the executed ones. See
+[acceptance-evidence.md](../protocols/acceptance-evidence.md#deferred-commands).
 
 **Circuit-breaker response and compatibility model:** `WARNING`, `CHECKPOINT`,
 and `HALT` are typed responses. Only `HALT` is a trigger: it sets

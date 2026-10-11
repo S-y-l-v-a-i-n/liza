@@ -30,6 +30,9 @@ type SubmitForReviewResult struct {
 	ReviewCommit string   `json:"review_commit"`
 	AgentID      string   `json:"agent_id"`
 	Warnings     []string `json:"warnings,omitempty"`
+	// DeferredCommands lists the canonical commands admission skipped; the
+	// deferred-validation batch runs them on integration (ADR-0204).
+	DeferredCommands []models.AcceptanceDeferredCommand `json:"deferred_commands,omitempty"`
 }
 
 var (
@@ -600,12 +603,16 @@ func prepareSubmitForReview(projectRoot, taskID, commitRef, agentID string, auth
 				}
 			}
 
-			return &SubmitForReviewResult{
+			result := &SubmitForReviewResult{
 				LifecycleOutcome: outcome,
 				TaskID:           taskID,
 				ReviewCommit:     postRebaseCommit,
 				AgentID:          agentID,
-			}, nil
+			}
+			if acceptanceReceipt != nil {
+				result.DeferredCommands = acceptanceReceipt.Deferred
+			}
+			return result, nil
 		},
 	}, nil
 }

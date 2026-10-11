@@ -888,7 +888,16 @@ each analysis also carries immutable `integration_analysis` metadata.
    mutation also triggers another global generation while budget remains.
    Slice exhaustion is explicitly blocked; global generation exhaustion is
    explicitly `exhausted`. Neither is successful completion.
-7. **Complete only on current clean evidence.** An empty global output records a
+7. **Complete only on current clean evidence.** A global generation is
+   requested, and closure counts, only once a passed deferred-validation batch at
+   integration HEAD covers every effective deferred command; until then progress
+   waits (`deferred_validation_pending`) or
+   blocks (`deferred_validation_failed` naming culprit tasks, or
+   `deferred_validation_infra` after three batches without a verdict, or
+   `deferred_validation_unsettled` while a runner record awaits settlement). A merge
+   that moves HEAD re-evaluates
+   ([ADR-0204](../architecture/ADR/0204-deferred-validation-tier.md)). An empty
+   global output records a
    clean generation, but clean closure is projected only when the reviewed
    source commit equals live integration HEAD. Sprint progression and automatic
    goal stop re-evaluate that authoritative completion decision rather than
@@ -907,6 +916,11 @@ projection:
   key, verdict (`clean` or `findings`), immutable `source_commit`, and reviewed
   `report_commit`;
 - `mutation_receipts[]` records task ID plus before/after integration commits;
+- `deferred_validation` records merged receipt deferrals and operator
+  retirements (both append-only), batch results with bisect culprits (never
+  edited, identities never reused via `last_batch_id`; retention keeps the
+  newest 20 plus each command's latest pass), and
+  the single live runner's fencing token;
 - `closure` projects `clean`, `blocked`, or `exhausted`, with clean closure also
   naming its generation, analysis key, and source commit.
 

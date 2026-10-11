@@ -26,8 +26,12 @@ must already exist in the document's strict `Source References` → `Obligation
 Coverage`. Allocate the child's complete subset without copying requirement prose.
 The declaration's ordered `validation` must equal the child's `output[].validation`
 and eventual task `validation`. Name the child's own proofs plus shared tests
-covering code it changes; a long shared suite listed for regression alone reruns at
-every submission and correction, while integration runs whole suites once. Commands
+covering code it changes. A long shared suite needed for regression only goes in
+`validation` once with its zero-based index in `"deferred": [i]` (ascending):
+admission skips it and the engine runs it in a periodic batch on integration,
+bisecting a failure to the merge that caused it. At least one command must stay
+undeferred, no mapping may name a deferred index, and a command a runtime input
+uses cannot be deferred. Commands
 obey the existing command-safety contract; the coder's manifest cannot add or
 replace them. Whole-document refs are valid only when exactly one declaration is
 present.
@@ -57,7 +61,7 @@ Commit the manifest at the declared path, with exactly one mapping per allocated
 `file` names a regular committed file; `assertion` identifies the executable
 test/assertion for reviewer inspection; `command_index` is zero-based into the
 canonical command list. Missing, extra and duplicate IDs fail. Every canonical
-command runs, including commands that do not directly own a mapping.
+command not deferred runs, including commands that do not directly own a mapping.
 
 For an obligation that cannot use executable proof, the independently reviewed
 declaration must explicitly authorize an exception:
@@ -108,7 +112,9 @@ admission atomically records `acceptance_receipt` with the review commit, source
 manifest blob, mappings, command outcomes, UTC times and masked output.
 Each command result includes required `command_sha256`: SHA-256 of the exact
 canonical command executed. Assignment checks that digest; `command` is masked
-display text and does not supply command identity.
+display text and does not supply command identity. Skipped commands appear in the
+receipt's `deferred` with authority `contract` or `operator` (an operator ruling
+can defer an exact command for in-flight tasks); reviewers treat them as not run.
 
 Reviewers inspect full task JSON using the configured binary's
 `get tasks <task-id> --format json`. Inspect assertions, source allocation and

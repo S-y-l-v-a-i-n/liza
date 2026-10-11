@@ -485,6 +485,9 @@ are loaded at runtime from the provider catalog.
 | `post_worktree_cmd` | (none) | — | — | shell cmd | Command run after worktree creation (e.g. `npm install`) |
 | `copy_worktree_env_files` | false | — | — | boolean | Explicitly authorize copying ignored root env files into task worktrees |
 | `runtime_input_registry` | (none) | — | — | repo-relative path | Committed recipe registry for `runtime_inputs`; see [Runtime inputs](#runtime-inputs) |
+| `deferred_validation.batch_every_merges` | 5 | 1 | — | count | Forward merges per periodic deferred-validation batch (ADR-0204); set by editing state.yaml |
+| `deferred_validation.setup_timeout_seconds` | 1800 | 1 | — | seconds | Bound on `post_worktree_cmd` before each batch probe; set by editing state.yaml |
+| `deferred_validation.rulings` | (none) | — | — | list | Exact commands deferred at strict admission on operator authority; written only by `deferred-validation rule`/`unrule` |
 | `auto_checkpoint_summary` | true | — | — | boolean | Auto-runs checkpoint-summary when the sprint reaches a checkpoint and writes `§BRAND_PROJECT_DIRNAME§/checkpoint-summary.md` |
 | `scip_search` | (none) | — | — | language list | Durable allowlist of SCIP languages §BRAND_NAME_TITLE§ may index when `§BRAND_ENV_PREFIX§_ENABLE_SCIP_SEARCH` is truthy |
 

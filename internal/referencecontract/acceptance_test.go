@@ -114,6 +114,47 @@ func TestParseAcceptanceRejectsInvalidDeclarations(t *testing.T) {
 	}
 }
 
+func TestParseAcceptanceDeferredCommands(t *testing.T) {
+	twoCommands := strings.Replace(acceptanceDeclaration, `["project-test --acceptance"]`, `["project-test --acceptance","project-suite --all"]`, 1)
+	contract, err := ParseAcceptance(acceptanceDocument(strings.Replace(twoCommands, `"version":1`, `"version":1,"deferred":[1]`, 1)), "Task One")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contract.IsDeferred(1) || contract.IsDeferred(0) {
+		t.Fatalf("deferred = %v", contract.Deferred)
+	}
+	for _, tc := range []struct{ name, deferred, want string }{
+		{"out of range", `[2]`, "acceptance.deferred[0]"},
+		{"negative", `[-1]`, "acceptance.deferred[0]"},
+		{"duplicate", `[1,1]`, "acceptance.deferred[1]"},
+		{"descending", `[1,0]`, "acceptance.deferred[1]"},
+		{"every command", `[0,1]`, "at least one validation command"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseAcceptance(acceptanceDocument(strings.Replace(twoCommands, `"version":1`, `"version":1,"deferred":`+tc.deferred, 1)), "Task One")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	manifestJSON := `{"version":1,"mappings":[{"obligation_id":"AC-identity","file":"tests/boundary.test","assertion":"reject invalid identity","command_index":0},{"obligation_id":"AC-rollback","file":"tests/rollback.test","assertion":"rolls back","command_index":0}]}`
+	manifest, err := ParseAcceptanceManifest(manifestJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAcceptanceManifest(contract, manifest); err != nil {
+		t.Fatalf("proofs on the executable command: %v", err)
+	}
+	manifest, err = ParseAcceptanceManifest(strings.Replace(manifestJSON, `"rolls back","command_index":0`, `"rolls back","command_index":1`, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateAcceptanceManifest(contract, manifest); err == nil || !strings.Contains(err.Error(), "deferred command") {
+		t.Fatalf("proof on deferred command error = %v", err)
+	}
+}
+
 func TestAcceptanceManifestExactMappingAndProofs(t *testing.T) {
 	declaration := strings.Replace(acceptanceDeclaration, `"version":1`, `"version":1,"approved_proofs":[{"obligation_id":"AC-rollback","reference_id":"source","rationale":"approved exception"}]`, 1)
 	contract, err := ParseAcceptance(acceptanceDocument(declaration), "Task One")

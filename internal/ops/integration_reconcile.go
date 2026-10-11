@@ -3,6 +3,7 @@ package ops
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"slices"
 	"sort"
@@ -44,7 +45,16 @@ var testReconcileIntegrationAnalysesHooks *reconcileIntegrationAnalysesTestHooks
 // coverage, analysis work, and non-clean closure requested by the authoritative
 // integration progress decision.
 func ReconcileIntegrationAnalyses(projectRoot string) (*ReconcileIntegrationAnalysesResult, error) {
-	return reconcileIntegrationAnalyses(projectRoot, false)
+	result, err := reconcileIntegrationAnalyses(projectRoot, false)
+	if err == nil {
+		// Reconsider a due or gate-required deferred-validation batch. It runs
+		// here, with no integration lock held, and is non-fatal: the next merge
+		// or reconciliation reconsiders (ADR-0204).
+		if _, startErr := StartDeferredValidationIfDue(projectRoot); startErr != nil {
+			log.Printf("WARNING: deferred validation not started: %v", startErr)
+		}
+	}
+	return result, err
 }
 
 // reconcileIntegrationAnalysesWithCompletionLockHeld is used by progression,

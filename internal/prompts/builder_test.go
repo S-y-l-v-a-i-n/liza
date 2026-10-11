@@ -3578,13 +3578,14 @@ func TestBuildRoleContext_ValidationCommandShapeGuidance(t *testing.T) {
 	}
 }
 
-// D-97: producers of strict coding children scope each child's validation, and
-// their reviewers reject a long shared suite repeated for regression alone.
-// An architect produces coding children only through direct allocation; epic
-// and integration outputs are not strict coding children of these roles.
+// D-97: producers of strict coding children scope each child's validation and
+// defer a long shared regression-only suite, and their reviewers reject one
+// listed without covering changed code or deferral (ADR-0204). An architect
+// produces coding children only through direct allocation; epic and
+// integration outputs are not strict coding children of these roles.
 func TestBuildRoleContext_ValidationScopeGuidance(t *testing.T) {
-	const producerRule = "do not repeat a long shared suite for regression alone: strict coding admission runs every listed command"
-	const reviewerRow = "| Validation scope | A child's validation repeats a long shared suite"
+	const producerRule = "put a long shared regression-only suite's index in the Acceptance Contract's `deferred`"
+	const reviewerRow = "| Validation scope | A child's validation lists a long shared suite"
 	projectRoot := setupPipelineConfig(t)
 	resolver := testPipelineResolver(t)
 

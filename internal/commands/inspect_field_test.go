@@ -152,6 +152,10 @@ func TestGetField_DiscoversAllTaggedConfigAndSprintFields(t *testing.T) {
 			ModeChangedAt:            &modeChangedAt,
 			ModeChangedBy:            &modeChangedBy,
 			DiagnosticLogging:        true,
+			DeferredValidation: &models.DeferredValidationConfig{
+				BatchEveryMerges: 3, SetupTimeoutSeconds: 600,
+				Rulings: []models.DeferredValidationRuling{{Command: "make e2e", Ruling: "decision D-97", RecordedAt: now}},
+			},
 		},
 		Sprint: models.Sprint{
 			ID:      "sprint-42",

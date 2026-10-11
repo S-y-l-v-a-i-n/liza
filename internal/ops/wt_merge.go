@@ -1275,6 +1275,9 @@ func mergeWorktree(projectRoot, taskID, agentID string, authority *models.AgentA
 		t.Worktree = nil
 		t.MergeCommit = &mergeCommit
 		t.IntegrationFailure = nil
+		// Deferred commands enter the goal ledger here, before post-merge
+		// archival can move the receipt out of live state (ADR-0204).
+		recordMergedDeferrals(s, t, mergeCommit, time.Now().UTC())
 
 		// Record completion handoff event — audit trail for sprint analysis.
 		t.HandoffEvents = append(t.HandoffEvents, models.HandoffEvent{
@@ -1364,6 +1367,12 @@ func mergeWorktree(projectRoot, taskID, agentID string, authority *models.AgentA
 	// moves the integration branch with update-ref, which fires no Git hook.
 	if err := startIndexRefresh(projectRoot, "merge"); err != nil {
 		warnings = append(warnings, fmt.Sprintf("failed to start repo-root index refresh: %v", err))
+	}
+
+	// Start a periodic deferred-validation batch when one is due — non-fatal;
+	// the next merge or integration reconciliation reconsiders (ADR-0204).
+	if _, err := StartDeferredValidationIfDue(projectRoot); err != nil {
+		warnings = append(warnings, fmt.Sprintf("failed to start deferred validation: %v", err))
 	}
 
 	// Shrink live state by archiving terminal acceptance receipts — non-fatal.

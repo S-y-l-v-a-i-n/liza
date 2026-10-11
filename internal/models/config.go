@@ -218,6 +218,9 @@ type Config struct {
 	// recipe registry, read at the integration commit (ADR-0169). Empty means
 	// no task may declare runtime inputs.
 	RuntimeInputRegistry string `yaml:"runtime_input_registry,omitempty"`
+	// DeferredValidation configures the deferred-validation batch and holds
+	// operator rulings that defer exact canonical commands (ADR-0204).
+	DeferredValidation *DeferredValidationConfig `yaml:"deferred_validation,omitempty"`
 	// AutoCheckpointSummary controls whether the runtime auto-invokes the
 	// checkpoint-summary skill against a task that just reached MERGED and
 	// writes the result to the project runtime directory. Default (nil) is ON.

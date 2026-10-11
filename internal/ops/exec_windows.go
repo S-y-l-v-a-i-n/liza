@@ -5,6 +5,7 @@ package ops
 import (
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/liza-mas/liza/internal/procscan"
 )
@@ -17,4 +18,12 @@ func configProcessGroupKill(cmd *exec.Cmd) {
 		}
 		return procscan.KillProcessTree(cmd.Process.Pid)
 	}
+}
+
+// reapProcessGroup cannot establish that a tree ended: once the root exited,
+// its PID may be reused, so killing or probing a tree by it could hit an
+// unrelated process. It fails closed; deferred validation refuses to run on
+// Windows before reaching it (TECH_DEBT).
+func reapProcessGroup(int, time.Duration) bool {
+	return false
 }

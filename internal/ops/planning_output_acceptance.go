@@ -187,6 +187,12 @@ func validatePlanningOutputAcceptance(root string, task *models.Task, commit str
 		if contract != nil && !slices.Equal(contract.Validation, output.Validation) {
 			return fail("declaration must equal output's ordered validation commands")
 		}
+		if contract != nil {
+			// Operator rulings are admission-time authority, not plan content.
+			if _, err := acceptanceDeferrals(models.Config{}, contract, output.RuntimeInputs); err != nil {
+				return fail(err.Error())
+			}
+		}
 		if contract == nil {
 			if err := notStrict(); err != nil {
 				return err

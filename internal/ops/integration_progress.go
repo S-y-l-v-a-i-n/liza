@@ -38,6 +38,9 @@ type IntegrationProgressDecision struct {
 	Exhausted             bool
 	Waiting               *IntegrationProgressReason
 	Blocked               *IntegrationProgressReason
+	// DeferredValidationRequest is the integration HEAD at which the gate
+	// waits for a deferred-validation batch (ADR-0204); empty otherwise.
+	DeferredValidationRequest string
 }
 
 // IntegrationScopeCoverage projects the bounded evidence required for one
@@ -744,6 +747,17 @@ func (e *integrationProgressEvaluator) evaluateGlobal(
 				return decision, nil
 			}
 		}
+	}
+
+	// Deferred commands must pass at this HEAD before a generation is
+	// requested or closure counts (ADR-0204).
+	if waiting, blocked := deferredValidationGate(e.state, integrationHEAD); blocked != nil {
+		decision.Blocked = blocked
+		return decision, nil
+	} else if waiting != nil {
+		decision.Waiting = waiting
+		decision.DeferredValidationRequest = integrationHEAD
+		return decision, nil
 	}
 
 	decision.GlobalReady = true

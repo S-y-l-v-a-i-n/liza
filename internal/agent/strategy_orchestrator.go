@@ -31,6 +31,9 @@ type orchestratorStrategy struct {
 
 var (
 	orchestratorWaitForWorkDetector = DetectOrchestratorWakeTriggersForProject
+	// orchestratorStartDeferredValidation retries a pending deferred-validation
+	// batch while integration waits on it; a variable so tests can observe it.
+	orchestratorStartDeferredValidation = ops.StartDeferredValidationIfDue
 	// orchestratorPreExecutionHook runs at the end of PreExecution, inside the
 	// window the supervisor re-reads state in before RevalidateWake. Production
 	// leaves it nil. It exists because the pre-loop gates (handleQuotaSignal,
@@ -187,6 +190,15 @@ func (s *orchestratorStrategy) WaitForWork(ctx context.Context, bb *db.Blackboar
 			if result.ShouldWake() {
 				s.wake = &result
 				return true, fmt.Sprintf("Orchestrator wake trigger: %s (count: %d)", result.Trigger, result.Count)
+			}
+			if result.Trigger == WakeTriggerIntegrationWaiting && result.Integration.ReasonCode == ops.IntegrationProgressWaitingDeferredValidation {
+				// A stable wait never wakes the orchestrator, so its poll is
+				// what retries a failed launch or an aborted or infra-failed
+				// batch at unchanged HEAD, within the per-commit attempt cap
+				// (ADR-0204). A live runner or a halt makes it a no-op.
+				if _, err := orchestratorStartDeferredValidation(config.ProjectRoot); err != nil {
+					GetLogger().Warn("Deferred validation not started", "error", err)
+				}
 			}
 			if result.Trigger != WakeTriggerNone {
 				return false, fmt.Sprintf("Orchestrator stable integration outcome: %s (%s)", result.Trigger, result.Integration.ReasonCode)

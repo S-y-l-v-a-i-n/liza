@@ -1232,24 +1232,38 @@ canonical command whose submit parent is dead. Lock scope: an operator release
 or cancel timing out on a task in canonical execution. Reuse: a resubmission of
 an unchanged candidate repeating a batch longer than ten minutes.
 
-## Submit admission has no deferred validation tier
+## Deferred-validation batches do not run on Windows
 
-**What:** ADR-0134's 2026-10-10 amendment scopes each child's canonical list by
-guidance only (D-97 (b)). Shared regression suites outside a child's declared
-coverage now run only in goal integration, which attributes failures by path
-ownership, not by merge. Missing: a contract field for deferred commands, a
-receipt that can certify "deferred to batch" (an ADR-0134 change), an
-engine-scheduled periodic batch on integration, automatic bisect over merges
-since the last green batch with routing to the culprit writer, and a ruling for
-in-flight done_when texts that name deferred commands.
+**What:** The deferred-validation runner refuses to run on Windows (ADR-0204).
+It cannot establish that a command's descendants ended: once the root exited,
+its PID may be reused, so killing or probing a tree by it could hit an
+unrelated process, and the OS lock does not pass to child processes there.
+Triggers start nothing on Windows, so a goal with deferred commands waits at
+`deferred_validation_pending` until the batch runs from a supported host or the
+operator retires the commands.
 
-**Why deferred:** human scope decision (2026-10-10): ship the prompt-only
-mitigations first. The engine tier needs a scheduler, failure routing and an
-acceptance-authority change.
+**Why deferred:** Owning a batch step's whole process tree on Windows needs a
+Job Object per step plus a fence that survives the runner. That is platform
+code for a platform no deferred-validation run has used yet.
 
-**Payback trigger:** on a run using the scoped guidance, a regression first
-surfaces at goal integration and needs multi-task rework, or per-submit
-admission still exceeds ten minutes at normal load.
+**Payback trigger:** a goal integrated from Windows defers a command, or
+Windows becomes a supported operator platform for goal integration.
+
+## Deferred-validation batch does not load tool env files
+
+**What:** The deferred-validation batch runs commands in its own worktree,
+outside any agent session. It provisions root env files (when
+`copy_worktree_env_files` is set) and runs `post_worktree_cmd`, but it does not
+load the agent tool's `env_files` or session environment. A deferred command
+that passes at admission because a tool env file supplied a variable can fail
+in the batch and appear as a regression (ADR-0204).
+
+**Why deferred:** Tool env files are resolved per agent CLI and per session;
+the batch has no session to resolve them against. Choosing one tool's files
+would make the batch environment depend on which CLI ran last.
+
+**Payback trigger:** a batch failure is traced to a variable that only a tool
+env file provides, or a project declares env needs for deferred commands.
 
 ## Duplicate acceptance submit fixtures
 

@@ -38,6 +38,9 @@ func validateIntegrationLifecycle(v *violations, state *models.State) {
 	validateGlobalGenerations(v, lifecycle.GlobalGenerations, tasksByID, lifecycle.FirstGlobalGeneration())
 	validateMutationReceipts(v, lifecycle.MutationReceipts)
 	validateIntegrationClosure(v, lifecycle.Closure, lifecycle.GlobalGenerations)
+	for _, err := range models.DeferredValidationLedgerViolations(lifecycle.DeferredValidation) {
+		v.add(err)
+	}
 }
 
 func validateIntegrationAnalysisMetadata(v *violations, task *models.Task) {
@@ -461,6 +464,9 @@ func ValidateIntegrationLifecycleTransition(previous, candidate *models.State) e
 		if !isSlicePrefix(previousLifecycle.MutationReceipts, candidateLifecycle.MutationReceipts) {
 			return fmt.Errorf("integration mutation receipts are append-only")
 		}
+		if err := validateDeferredValidationLedgerTransition(previousLifecycle.DeferredValidation, candidateLifecycle.DeferredValidation); err != nil {
+			return err
+		}
 	}
 
 	candidateTasks := make(map[string]*models.Task, len(candidate.Tasks))
@@ -626,4 +632,41 @@ func sameAnalysisMetadata(left, right *models.IntegrationAnalysisMetadata) bool 
 
 func isSlicePrefix[T any](previous, candidate []T) bool {
 	return len(candidate) >= len(previous) && reflect.DeepEqual(previous, candidate[:len(previous)])
+}
+
+// validateDeferredValidationLedgerTransition keeps deferrals and retirements
+// append-only and batches immutable: a batch may only be appended or pruned,
+// never edited. Only the runner record changes freely (ADR-0204).
+func validateDeferredValidationLedgerTransition(previous, candidate *models.DeferredValidationLedger) error {
+	if previous == nil {
+		return nil
+	}
+	if candidate == nil {
+		return fmt.Errorf("deferred-validation ledger cannot be cleared")
+	}
+	// An empty previous list is a prefix of anything; isSlicePrefix alone
+	// would compare a nil slice with a non-nil empty one.
+	if len(previous.Deferrals) > 0 && !isSlicePrefix(previous.Deferrals, candidate.Deferrals) {
+		return fmt.Errorf("deferred-validation deferrals are append-only")
+	}
+	if len(previous.Retirements) > 0 && !isSlicePrefix(previous.Retirements, candidate.Retirements) {
+		return fmt.Errorf("deferred-validation retirements are append-only")
+	}
+	// The high-water identity covers batches retention already pruned.
+	last := previous.HighestBatchID()
+	if candidate.LastBatchID < previous.LastBatchID {
+		return fmt.Errorf("deferred-validation last_batch_id cannot decrease")
+	}
+	byID := make(map[int]models.DeferredValidationBatch, len(previous.Batches))
+	for _, batch := range previous.Batches {
+		byID[batch.ID] = batch
+	}
+	for _, batch := range candidate.Batches {
+		if batch.ID <= last {
+			if prior, ok := byID[batch.ID]; !ok || !reflect.DeepEqual(prior, batch) {
+				return fmt.Errorf("deferred-validation batch %d cannot be edited or re-added", batch.ID)
+			}
+		}
+	}
+	return nil
 }

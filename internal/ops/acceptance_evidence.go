@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/liza-mas/liza/internal/brand"
@@ -96,6 +97,77 @@ type acceptanceInput struct {
 	contract      *referencecontract.AcceptanceContract
 	specRef       string
 	destructiveDB bool
+	// deferred is derived from the contract and the current operator rulings;
+	// admission skips these commands (ADR-0204).
+	deferred []models.AcceptanceDeferredCommand
+}
+
+// executedCommands returns the canonical commands admission runs, in order,
+// with each one's canonical index so diagnostics name the reviewed position.
+func (input *acceptanceInput) executedCommands() (commands []string, indices []int) {
+	skipped := make(map[int]bool, len(input.deferred))
+	for _, deferral := range input.deferred {
+		skipped[deferral.Index] = true
+	}
+	for i, command := range input.contract.Validation {
+		if !skipped[i] {
+			commands = append(commands, command)
+			indices = append(indices, i)
+		}
+	}
+	return commands, indices
+}
+
+// acceptanceDeferrals derives the commands admission skips: the contract's
+// reviewed deferred indices, plus commands an operator ruling defers. A
+// command a runtime input lists runs only in the gate (ADR-0169): the contract
+// may not defer it, and a ruling does not apply to it.
+func acceptanceDeferrals(config models.Config, contract *referencecontract.AcceptanceContract, runtimeInputs []models.RuntimeInput) ([]models.AcceptanceDeferredCommand, error) {
+	gateOnly := map[string]bool{}
+	for _, input := range runtimeInputs {
+		for _, command := range input.Commands {
+			gateOnly[command] = true
+		}
+	}
+	mask := acceptanceExecutionMask(os.Environ())
+	var deferred []models.AcceptanceDeferredCommand
+	for i, command := range contract.Validation {
+		authority := models.AcceptanceDeferralAuthority("")
+		switch {
+		case contract.IsDeferred(i):
+			if gateOnly[command] {
+				return nil, fmt.Errorf("acceptance.deferred: validation[%d] is used by a runtime input and must run in the gate", i)
+			}
+			authority = models.AcceptanceDeferralContract
+		case !gateOnly[command] && models.DeferredValidationRulingFor(config, command) != nil:
+			authority = models.AcceptanceDeferralOperator
+		default:
+			continue
+		}
+		deferred = append(deferred, models.AcceptanceDeferredCommand{
+			Index:          i,
+			Command:        mask(command),
+			CommandSHA256:  fmt.Sprintf("%x", sha256.Sum256([]byte(command))),
+			TimeoutSeconds: contract.TimeoutSeconds,
+			Authority:      authority,
+		})
+	}
+	return deferred, nil
+}
+
+// sameDeferrals compares deferral identity. The masked display text depends
+// on the comparing process's environment, so it is not identity.
+func sameDeferrals(want, got []models.AcceptanceDeferredCommand) bool {
+	if len(want) != len(got) {
+		return false
+	}
+	for i := range want {
+		w, g := want[i], got[i]
+		if w.Index != g.Index || w.CommandSHA256 != g.CommandSHA256 || w.TimeoutSeconds != g.TimeoutSeconds || w.Authority != g.Authority {
+			return false
+		}
+	}
+	return true
 }
 
 // loadAcceptanceInput derives authority from the allocated, independently
@@ -181,6 +253,10 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	if err := models.ValidateValidationSafety("acceptance.validation", task.Validation, task.DestructiveDB); err != nil {
 		return content(err.Error())
 	}
+	deferred, err := acceptanceDeferrals(state.Config, contract, task.RuntimeInputs)
+	if err != nil {
+		return content(err.Error())
+	}
 	refs, err := referencecontract.Parse(strings.ReplaceAll(carrier, "\r\n", "\n"))
 	if err != nil || refs == nil {
 		return content("strict Source References are required")
@@ -245,6 +321,7 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	return &acceptanceInput{
 		source: *source, contract: contract,
 		specRef: task.SpecRef, destructiveDB: task.DestructiveDB,
+		deferred: deferred,
 	}, nil
 }
 
@@ -728,7 +805,7 @@ func prepareAcceptanceReceipt(root string, task *models.Task, input *acceptanceI
 			return nil, acceptanceError(task.ID, "acceptance.mappings["+mapping.ObligationID+"].file", "must name a regular committed file")
 		}
 	}
-	return &models.AcceptanceReceipt{Version: 1, ReviewCommit: commit, Source: input.source, ManifestPath: input.contract.Manifest, ManifestBlob: blob, Mappings: manifest.Mappings}, nil
+	return &models.AcceptanceReceipt{Version: 1, ReviewCommit: commit, Source: input.source, ManifestPath: input.contract.Manifest, ManifestBlob: blob, Mappings: manifest.Mappings, Deferred: slices.Clone(input.deferred)}, nil
 }
 
 func checkAcceptanceWorktree(root, taskID, commit string) error {
@@ -760,7 +837,8 @@ func executeAcceptanceReceipt(ctx context.Context, root string, task *models.Tas
 	if err != nil {
 		return nil, err
 	}
-	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), input.contract.Validation, input.contract.TimeoutSeconds, grant)
+	commands, indices := input.executedCommands()
+	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), commands, indices, input.contract.TimeoutSeconds, grant)
 	if err != nil {
 		return nil, acceptanceError(task.ID, "acceptance.execution", err.Error())
 	}
@@ -792,6 +870,9 @@ func recheckAcceptanceReceipt(root string, state *models.State, task *models.Tas
 		return err
 	}
 	expected.Commands = receipt.Commands
+	if sameDeferrals(expected.Deferred, receipt.Deferred) {
+		expected.Deferred = receipt.Deferred
+	}
 	if !reflect.DeepEqual(expected, receipt) {
 		return acceptanceError(task.ID, "acceptance.receipt", "candidate manifest changed during validation")
 	}
@@ -819,13 +900,49 @@ func validateAcceptanceForAssignment(root string, state *models.State, task *mod
 		return err
 	}
 	expected.Commands = receipt.Commands
-	if !reflect.DeepEqual(expected, receipt) || len(receipt.Commands) != len(input.contract.Validation) {
+	expected.Deferred = receipt.Deferred
+	if !reflect.DeepEqual(expected, receipt) {
 		return acceptanceError(task.ID, "acceptance.receipt", "receipt does not match validated manifest and canonical commands")
 	}
-	for i, result := range receipt.Commands {
-		commandHash := fmt.Sprintf("%x", sha256.Sum256([]byte(input.contract.Validation[i])))
+	return validateReceiptExecutions(task.ID, input, receipt)
+}
+
+// validateReceiptExecutions binds every canonical command to either a
+// successful execution or a deferral that current authority still grants. A
+// command executed although a later ruling defers it remains valid evidence,
+// so a new ruling never strands an already-submitted receipt; a deferral whose
+// ruling was withdrawn does not.
+func validateReceiptExecutions(taskID string, input *acceptanceInput, receipt *models.AcceptanceReceipt) error {
+	granted := make(map[int]models.AcceptanceDeferredCommand, len(input.deferred))
+	for _, deferral := range input.deferred {
+		granted[deferral.Index] = deferral
+	}
+	skipped := make(map[int]bool, len(receipt.Deferred))
+	for i, deferral := range receipt.Deferred {
+		current, ok := granted[deferral.Index]
+		if !ok || (i > 0 && deferral.Index <= receipt.Deferred[i-1].Index) || !sameDeferrals([]models.AcceptanceDeferredCommand{current}, []models.AcceptanceDeferredCommand{deferral}) {
+			return acceptanceError(taskID, "acceptance.receipt.deferred", "deferral is not granted by the reviewed contract or a current operator ruling")
+		}
+		skipped[deferral.Index] = true
+	}
+	for index := range granted {
+		if granted[index].Authority == models.AcceptanceDeferralContract && !skipped[index] {
+			return acceptanceError(taskID, "acceptance.receipt.deferred", "receipt omits a deferral the reviewed contract declares")
+		}
+	}
+	if len(receipt.Commands)+len(receipt.Deferred) != len(input.contract.Validation) {
+		return acceptanceError(taskID, "acceptance.receipt", "receipt does not match validated manifest and canonical commands")
+	}
+	next := 0
+	for i, command := range input.contract.Validation {
+		if skipped[i] {
+			continue
+		}
+		result := receipt.Commands[next]
+		next++
+		commandHash := fmt.Sprintf("%x", sha256.Sum256([]byte(command)))
 		if result.CommandSHA256 != commandHash || result.ExitCode != 0 || result.StartedAt.IsZero() || result.FinishedAt.Before(result.StartedAt) {
-			return acceptanceError(task.ID, "acceptance.receipt.commands", "missing or unsuccessful canonical execution")
+			return acceptanceError(taskID, "acceptance.receipt.commands", "missing or unsuccessful canonical execution")
 		}
 	}
 	return nil

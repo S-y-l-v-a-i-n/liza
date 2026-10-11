@@ -421,7 +421,7 @@ func validateAcceptanceState(v *violations, task *models.Task) {
 	}{
 		{"manifest_path", receipt.ManifestPath == ""},
 		{"mappings", len(receipt.Mappings) == 0 || len(receipt.Mappings) > 256},
-		{"commands", len(receipt.Commands) > 64},
+		{"commands", len(receipt.Commands)+len(receipt.Deferred) > 64},
 	} {
 		if check.broken {
 			v.add(fmt.Errorf("task %s acceptance_receipt has invalid manifest or result bounds (%s)", task.ID, check.name))
@@ -455,6 +455,13 @@ func validateAcceptanceState(v *violations, task *models.Task) {
 	}
 	if totalOutput > 1024*1024 {
 		v.add(fmt.Errorf("task %s acceptance_receipt output exceeds 1 MiB", task.ID))
+	}
+	for i, deferral := range receipt.Deferred {
+		ordered := i == 0 || deferral.Index > receipt.Deferred[i-1].Index
+		if _, err := hex.DecodeString(deferral.CommandSHA256); err != nil || len(deferral.CommandSHA256) != 64 ||
+			deferral.Index < 0 || !ordered || deferral.TimeoutSeconds < 1 || !deferral.Authority.IsValid() {
+			v.add(fmt.Errorf("task %s acceptance_receipt has an invalid deferred command (deferred %d)", task.ID, i))
+		}
 	}
 }
 

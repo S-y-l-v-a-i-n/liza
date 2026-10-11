@@ -29,7 +29,7 @@ var errAcceptanceOutputLimit = errors.New("acceptance execution output limit exc
 // executeAcceptanceCommands returns trusted executions only when every command
 // passes, and nil results on any error. Callers own immutable input validation.
 func executeAcceptanceCommands(taskID, worktree string, commands []string, timeoutSeconds int) ([]models.AcceptanceCommandResult, error) {
-	return executeAcceptanceCommandsWith(context.Background(), taskID, worktree, commands, timeoutSeconds, nil)
+	return executeAcceptanceCommandsWith(context.Background(), taskID, worktree, commands, nil, timeoutSeconds, nil)
 }
 
 // acceptanceBatchTimeout is the batch budget a contract's timeout_seconds
@@ -47,7 +47,9 @@ func acceptanceBatchTimeout(timeoutSeconds int) time.Duration {
 // the inherited environment, the overlays and the declared secret values, and
 // is applied before any result, excerpt or error is built. Cancelling ctx
 // kills the running command's process group like the batch timeout does.
-func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string, commands []string, timeoutSeconds int, grant *runtimeInputGrant) ([]models.AcceptanceCommandResult, error) {
+// indices[i] is commands[i]'s canonical validation index, which diagnostics
+// name; nil means commands is the whole canonical list.
+func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string, commands []string, indices []int, timeoutSeconds int, grant *runtimeInputGrant) ([]models.AcceptanceCommandResult, error) {
 	environ := os.Environ()
 	masked := environ
 	if grant != nil {
@@ -58,6 +60,9 @@ func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string,
 	}
 	mask := acceptanceExecutionMaskWith(masked, grant.secretValues())
 	fail := func(index int, reason string) error {
+		if index < len(indices) {
+			index = indices[index]
+		}
 		return fmt.Errorf("acceptance.execution[%d] for task %s: %s", index, mask(taskID), mask(reason))
 	}
 	if timeoutSeconds < 0 || timeoutSeconds > referencecontract.AcceptanceMaxTimeoutSeconds {

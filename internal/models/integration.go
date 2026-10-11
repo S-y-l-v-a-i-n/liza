@@ -70,6 +70,9 @@ type IntegrationLifecycle struct {
 	MutationReceipts  []IntegrationMutationReceipt  `yaml:"mutation_receipts,omitempty" json:"mutation_receipts,omitempty"`
 	Closure           *IntegrationClosure           `yaml:"closure,omitempty" json:"closure,omitempty"`
 	PrematureRecovery *IntegrationPrematureRecovery `yaml:"premature_recovery,omitempty" json:"premature_recovery,omitempty"`
+	// DeferredValidation is the goal-scoped deferred-validation ledger
+	// (ADR-0204).
+	DeferredValidation *DeferredValidationLedger `yaml:"deferred_validation,omitempty" json:"deferred_validation,omitempty"`
 }
 
 // IntegrationPrematureRecovery preserves an unreviewed, empty-cohort global
