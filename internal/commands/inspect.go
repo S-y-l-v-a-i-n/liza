@@ -26,6 +26,9 @@ type InspectOptions struct {
 	Zombies       bool     // If true, return live agent processes missing from state
 	Fields        []string // Requested task fields, repeated or comma-separated
 	WarnWriter    io.Writer
+	// pipelineResolver carries the pipeline ID routing already loaded, so a
+	// plain task-ID query does not parse it again for dependency waits.
+	pipelineResolver models.PipelineResolver
 }
 
 // Validate checks if the inspect options are valid
@@ -118,7 +121,9 @@ func InspectCommand(args []string, opts InspectOptions) (string, error) {
 	var roleNames []string
 	if opts.ProjectRoot != "" {
 		if cfg, err := pipeline.LoadFrozen(opts.ProjectRoot); err == nil {
-			roleNames = pipeline.NewResolver(cfg).AllRoleNames()
+			resolver := pipeline.NewResolver(cfg)
+			roleNames = resolver.AllRoleNames()
+			opts.pipelineResolver = resolver
 		}
 	}
 
@@ -191,12 +196,13 @@ func handleEntityQuery(state *models.State, entity string, args []string, opts I
 		return formatOutput(state.Sprint, opts.Format)
 	case "tasks":
 		taskOpts := inspectTasksOptions{
-			Format:        opts.Format,
-			Summary:       opts.Summary,
-			OutputSummary: opts.OutputSummary,
-			Active:        opts.Active,
-			ProjectRoot:   opts.ProjectRoot,
-			Fields:        opts.Fields,
+			Format:           opts.Format,
+			Summary:          opts.Summary,
+			OutputSummary:    opts.OutputSummary,
+			Active:           opts.Active,
+			ProjectRoot:      opts.ProjectRoot,
+			Fields:           opts.Fields,
+			PipelineResolver: opts.pipelineResolver,
 		}
 		if len(args) > 0 {
 			return asString(inspectTask(state, args[0], taskOpts))

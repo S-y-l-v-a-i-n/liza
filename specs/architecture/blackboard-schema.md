@@ -1076,6 +1076,9 @@ fail closed. Unselected outputs do not hold the consumer. Declarations remain
 visible after satisfaction and are preserved on consumer replan and direct-edge
 repair. Missing generated declaration copies keep affected children held and
 producer output live until recovery restores them, even with an executed marker.
+Because `depends_on` alone does not determine admission, JSON/YAML task reads
+expose the claim predicate's unmet set and the chain heads it leads to as
+computed `waiting_on` (dependency holds only, not claimability).
 
 This field is the narrow explicit cross-stage exception; ordinary downstream
 `depends_on`/`task_depends_on` remain invalid. It neither replaces sibling

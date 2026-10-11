@@ -485,13 +485,13 @@ func TestUnmetDependencies(t *testing.T) {
 			task := testhelpers.BuildTaskByStatus("task-1", models.TaskStatusReady, now)
 			task.DependsOn = tt.dependsOn
 
-			got := unmetDependencies(&task, state)
+			got := models.UnmetClaimDependencies(&task, state, nil)
 			gotSummaries := make([]string, 0, len(got))
 			for _, dep := range got {
 				gotSummaries = append(gotSummaries, dep.Summary())
 			}
 			if !slices.Equal(gotSummaries, tt.want) {
-				t.Errorf("unmetDependencies() = %v, want %v", gotSummaries, tt.want)
+				t.Errorf("UnmetClaimDependencies() = %v, want %v", gotSummaries, tt.want)
 			}
 		})
 	}

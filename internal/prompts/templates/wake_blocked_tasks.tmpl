@@ -13,6 +13,7 @@ Assess the BLOCKED tasks named by this wake.
 {{template "replacement_lineage_policy" .}}
 
 1. Read the listed tasks from blackboard — understand blocked_reason, blocked_questions, and repair_request if present
+   Readiness of any task (can it start, what holds it) comes from `waiting_on` in {{binaryName}} get <id> --json (dependency holds and their chain heads), never from depends_on alone; its absence is not claimability. Name each head and its status in assessments.
 2. Determine if blocker is:
    - approved-proof reference drift → read {{binaryName}} reaffirm-proof --help; orchestrator-only remedy, one transition only, no status change or approval.
    - Rejection RCA gate (`rejection_rca` without disposition) → run {{binaryName}} record-rejection-rca <task-id> --rca-file <file> --agent-id {{.AgentID}} --json, then {{binaryName}} resume-rejection-rca <task-id> --disposition-file <file> --agent-id {{.AgentID}} --json. Use unblock-task below per recorded restore_mode: assign forbids --new-iteration; claimable requires it; none requires supersession, never unblock.
@@ -67,7 +68,7 @@ Assess the BLOCKED tasks named by this wake.
    - If you CANNOT resolve it (genuine spec ambiguity, external dependency) and canonical blocker metadata is already current: run note-only {{binaryName}} assess-blocked to record your assessment
      Run: {{binaryName}} assess-blocked <task-id> --note "<why it cannot be resolved now>" --agent-id {{.AgentID}} --json
      This history-only form prevents re-waking without replacing canonical blocker fields. The task will trigger again only when new information arrives (dependency changes, human notes).
-     If the hold waits on specific unfinished tasks, add --awaits <id>[,<id>] naming all of them: it wakes once all merge or one fails. Later assessments keep the set minus merged tasks; --clear-awaits drops it, e.g. to wake on a plan's generated children. If an awaiting task wakes with no dependency change or human note, repeat the same --awaits: a rejection names the cycle, settled or failed task.
+     If the hold waits on specific unfinished tasks, add --awaits <id>[,<id>] naming all of them: it wakes once all merge or one fails. Later assessments keep the set minus merged tasks; --clear-awaits drops it, e.g. to wake on a plan's generated children. If an awaiting task wakes with no dependency change or human note, repeat the same --awaits: a rejection names the cycle, settled or failed task. Heads are not await targets: route a missing, MERGED, BLOCKED or failed head to its step 2 case, and await the pending tasks that will settle it.
 6. Execute all state-modifying commands in this session. Do NOT defer.
 
 {{template "delivery_report" .}}

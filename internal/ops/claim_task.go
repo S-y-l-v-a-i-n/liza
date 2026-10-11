@@ -615,7 +615,7 @@ func completeClaimTaskAfterValidation(
 
 		// Re-check dependencies under lock for strategies that require it
 		if strategy.requiresDependencyRecheck() || len(task.ProviderDependencies) > 0 || len(task.ProviderReservations) > 0 {
-			if unmet := unmetDependencies(task, state, resolver); len(unmet) > 0 {
+			if unmet := models.UnmetClaimDependencies(task, state, resolver); len(unmet) > 0 {
 				return fmt.Errorf("race condition: dependencies changed: %s", formatDependencyResults(unmet))
 			}
 		}
@@ -805,7 +805,7 @@ func recheckClaimTaskBeforeWorktree(
 		return nil, &PreconditionError{Reason: reason}
 	}
 	if strategy.requiresDependencyRecheck() || len(task.ProviderDependencies) > 0 || len(task.ProviderReservations) > 0 {
-		if unmet := unmetDependencies(task, state, resolver); len(unmet) > 0 {
+		if unmet := models.UnmetClaimDependencies(task, state, resolver); len(unmet) > 0 {
 			return nil, fmt.Errorf("race condition: dependencies changed: %s", formatDependencyResults(unmet))
 		}
 	}
@@ -824,43 +824,6 @@ func replayClaimResult(task *models.Task, receipt *models.LifecycleReceipt, acto
 	return &ClaimResult{LifecycleOutcome: LifecycleReplayOutcome(task, receipt, actor), TaskID: task.ID, AgentID: actor,
 		SourceStatus: receipt.Projection.SourceStatus, WorktreeRel: path.Join(paths.WorktreesDirName, task.ID), BaseCommit: receipt.Projection.BaseCommit,
 		LeaseExpires: lease, IntegrationFix: receipt.Projection.SourceStatus == models.TaskStatusIntegrationFailed}
-}
-
-func unmetDependencies(task *models.Task, state *models.State, resolvers ...models.PipelineResolver) []models.DependencySatisfaction {
-	if task == nil || state == nil {
-		return nil
-	}
-	var unmet []models.DependencySatisfaction
-	for _, depID := range task.DependsOn {
-		depTask := state.FindTask(depID)
-		if depTask == nil {
-			unmet = append(unmet, models.DependencySatisfaction{
-				DependencyID: depID,
-				Kind:         models.DependencyInvalidMissing,
-				Path:         []string{depID},
-				BlockingIDs:  []string{depID},
-			})
-			continue
-		}
-		if depTask.Status == models.TaskStatusMerged {
-			continue
-		}
-		kind := models.DependencyUnsatisfiedPending
-		if depTask.Status == models.TaskStatusSuperseded {
-			kind = models.DependencyUnsatisfiedSuperseded
-		}
-		unmet = append(unmet, models.DependencySatisfaction{
-			DependencyID: depID,
-			Kind:         kind,
-			Path:         []string{depID},
-			BlockingIDs:  []string{depID},
-		})
-	}
-	var resolver models.PipelineResolver
-	if len(resolvers) > 0 {
-		resolver = resolvers[0]
-	}
-	return append(unmet, models.UnmetProviderDependencies(task, state.Tasks, resolver)...)
 }
 
 func formatDependencyResults(results []models.DependencySatisfaction) string {

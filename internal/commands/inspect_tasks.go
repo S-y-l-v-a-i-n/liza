@@ -1,6 +1,7 @@
 package commands
 
 import (
+	stderrors "errors"
 	"fmt"
 	"strings"
 	"time"
@@ -39,6 +40,7 @@ type taskInfo struct {
 	AssignedTo        *string                   `json:"assigned_to,omitempty" yaml:"assigned_to,omitempty"`
 	ReviewingBy       *string                   `json:"reviewing_by,omitempty" yaml:"reviewing_by,omitempty"`
 	DependsOn         []string                  `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	WaitingOn         *dependencyWaitInfo       `json:"waiting_on,omitempty" yaml:"waiting_on,omitempty"`
 	Age               string                    `json:"age" yaml:"age"`                       // Computed: time since created
 	TimeInStatus      string                    `json:"time_in_status" yaml:"time_in_status"` // Computed: time in current status
 	BlockedReason     *string                   `json:"blocked_reason,omitempty" yaml:"blocked_reason,omitempty"`
@@ -76,6 +78,29 @@ type taskInfo struct {
 	AttemptNum         int                           `json:"attempt_num,omitempty" yaml:"attempt_num,omitempty"`
 }
 
+// dependencyWaitInfo is what holds a task's admission: the claim predicate's
+// unmet dependencies and the chain heads they lead to. It reports dependency
+// holds only, not status or ownership claimability; heads are diagnosis, not
+// await targets, and a head's claimable is the role-level claim predicate.
+type dependencyWaitInfo struct {
+	Unmet []dependencyWaitUnmetInfo `json:"unmet" yaml:"unmet"`
+	Heads []dependencyWaitHeadInfo  `json:"heads" yaml:"heads"`
+}
+
+type dependencyWaitUnmetInfo struct {
+	Dependency string   `json:"dependency" yaml:"dependency"`
+	Kind       string   `json:"kind" yaml:"kind"`
+	Blocking   []string `json:"blocking,omitempty" yaml:"blocking,omitempty"`
+	Reason     string   `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+type dependencyWaitHeadInfo struct {
+	ID        string `json:"id" yaml:"id"`
+	Status    string `json:"status,omitempty" yaml:"status,omitempty"`
+	Claimable bool   `json:"claimable" yaml:"claimable"`
+	Reason    string `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
 type dependencyRepairReceipt struct {
 	Operation       string   `json:"operation" yaml:"operation"`
 	AffectedTaskIDs []string `json:"affected_task_ids" yaml:"affected_task_ids"`
@@ -92,6 +117,7 @@ type taskSummaryInfo struct {
 	AssignedTo       *string               `json:"assigned_to,omitempty" yaml:"assigned_to,omitempty"`
 	ReviewingBy      *string               `json:"reviewing_by,omitempty" yaml:"reviewing_by,omitempty"`
 	DependsOn        []string              `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
+	WaitingOn        *dependencyWaitInfo   `json:"waiting_on,omitempty" yaml:"waiting_on,omitempty"`
 	Attempt          int                   `json:"attempt" yaml:"attempt"`
 	ReviewCycles     int                   `json:"review_cycles,omitempty" yaml:"review_cycles,omitempty"`
 	LeaseExpires     *string               `json:"lease_expires,omitempty" yaml:"lease_expires,omitempty"`
@@ -132,6 +158,10 @@ type outputEntrySummaryInfo struct {
 // inspectTasks lists all tasks or filters by criteria
 func inspectTasks(state *models.State, opts inspectTasksOptions) (any, error) {
 	opts.State = state
+	waits, err := inspectionDependencyWaits(state, &opts)
+	if err != nil {
+		return nil, err
+	}
 	filtered, err := filterInspectionTasks(state.Tasks, opts)
 	if err != nil {
 		return nil, err
@@ -168,8 +198,9 @@ func inspectTasks(state *models.State, opts inspectTasksOptions) (any, error) {
 
 	if opts.Summary {
 		summaries := make([]taskSummaryInfo, len(filtered))
-		for i, task := range filtered {
-			summaries[i] = buildTaskSummaryInfo(&task)
+		for i := range filtered {
+			summaries[i] = buildTaskSummaryInfo(&filtered[i])
+			summaries[i].WaitingOn = buildDependencyWaitInfo(waits, &filtered[i])
 		}
 		if opts.Internal {
 			return summaries, nil
@@ -184,6 +215,7 @@ func inspectTasks(state *models.State, opts inspectTasksOptions) (any, error) {
 			return nil, err
 		}
 		taskInfos[i] = buildTaskInfo(task, opts.ProjectRoot)
+		taskInfos[i].WaitingOn = buildDependencyWaitInfo(waits, &filtered[i])
 	}
 
 	if opts.Internal {
@@ -217,8 +249,13 @@ func inspectTask(state *models.State, taskID string, opts inspectTasksOptions) (
 		return formatOutput(result, opts.Format)
 	}
 
+	waits, err := inspectionDependencyWaits(state, &opts)
+	if err != nil {
+		return nil, err
+	}
 	if opts.Summary {
 		info := buildTaskSummaryInfo(foundTask)
+		info.WaitingOn = buildDependencyWaitInfo(waits, foundTask)
 		if opts.Internal {
 			return info, nil
 		}
@@ -238,6 +275,7 @@ func inspectTask(state *models.State, taskID string, opts inspectTasksOptions) (
 		return nil, err
 	}
 	info := buildTaskInfo(restored, opts.ProjectRoot)
+	info.WaitingOn = buildDependencyWaitInfo(waits, foundTask)
 	if opts.Internal {
 		return info, nil
 	}
@@ -259,6 +297,52 @@ func filterInspectionTasks(tasks []models.Task, opts inspectTasksOptions) ([]mod
 		}
 	}
 	return filterTasks(tasks, opts), nil
+}
+
+// inspectionDependencyWaits returns one wait resolver per inspection call for
+// full and summary views that carry structured output. It stores a loaded
+// pipeline in opts so active filtering reuses it. Without a project root or a
+// workspace pipeline it returns nil: waits are unavailable, not satisfied.
+func inspectionDependencyWaits(state *models.State, opts *inspectTasksOptions) (*models.DependencyWaitResolver, error) {
+	structured := opts.Internal || opts.Format == "json" || opts.Format == "yaml"
+	if !structured || len(opts.Fields) > 0 || opts.OutputSummary {
+		return nil, nil
+	}
+	if opts.PipelineResolver == nil {
+		if opts.ProjectRoot == "" {
+			return nil, nil
+		}
+		cfg, err := pipeline.LoadFrozen(opts.ProjectRoot)
+		if stderrors.Is(err, pipeline.ErrConfigNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("load pipeline for dependency waits: %w", err)
+		}
+		opts.PipelineResolver = pipeline.NewResolver(cfg)
+	}
+	return models.NewDependencyWaitResolver(state, opts.PipelineResolver), nil
+}
+
+func buildDependencyWaitInfo(waits *models.DependencyWaitResolver, task *models.Task) *dependencyWaitInfo {
+	if waits == nil {
+		return nil
+	}
+	wait := waits.Wait(task)
+	if wait == nil {
+		return nil
+	}
+	info := &dependencyWaitInfo{
+		Unmet: make([]dependencyWaitUnmetInfo, len(wait.Unmet)),
+		Heads: make([]dependencyWaitHeadInfo, len(wait.Heads)),
+	}
+	for i, unmet := range wait.Unmet {
+		info.Unmet[i] = dependencyWaitUnmetInfo{Dependency: unmet.DependencyID, Kind: string(unmet.Kind), Blocking: unmet.BlockingIDs, Reason: unmet.Reason}
+	}
+	for i, head := range wait.Heads {
+		info.Heads[i] = dependencyWaitHeadInfo{ID: head.ID, Status: string(head.Status), Claimable: head.Claimable, Reason: head.Reason}
+	}
+	return info
 }
 
 func projectTaskFields(projectRoot string, task *models.Task, fields []string) (map[string]any, error) {

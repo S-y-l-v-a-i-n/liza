@@ -59,7 +59,9 @@ held until the provider is `MERGED`, the transition is executed, and every selec
 child exists with the expected parent/target role-pair and is `MERGED`;
 `APPROVED` alone is insufficient. Discovery and under-lock claim/reclaim checks
 agree. Unassigned unblock may restore a dependency-held task; assignment remains
-refused while a prerequisite is unmet.
+refused while a prerequisite is unmet. Task reads report the same unmet set and
+its chain heads as `waiting_on`; readiness assessments use it, never `depends_on`
+alone.
 
 A wait that orders the generated plan's writers rather than the plan goes in
 `descendant_dependencies`: the plan stays claimable, and every output it writes

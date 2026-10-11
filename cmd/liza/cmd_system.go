@@ -562,7 +562,14 @@ Repeat --field or separate fields with commas to project task fields; projection
 support JSON, YAML and value formats, but not table/summary/output-summary.
 Reserved state/computed queries take precedence. Within task queries, exact IDs
 precede the longest matching ID prefix. Use tasks <literal-id> for dotted IDs.
-Unknown fields, array/map traversal and surplus positional arguments are errors.`, brand.NameTitle, brand.Command("get"), brand.BinaryName),
+Unknown fields, array/map traversal and surplus positional arguments are errors.
+
+JSON/YAML task and --summary views add computed waiting_on to a non-terminal
+task its dependencies hold: the claim predicate's unmet dependencies (depends_on
+and provider prerequisites) and the chain heads they lead to (id, status,
+role-level claimable, reason). Heads are diagnosis, not await targets. Absence
+means no dependency hold, not claimability; without a workspace pipeline it is
+omitted as unavailable.`, brand.NameTitle, brand.Command("get"), brand.BinaryName),
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (retErr error) {
 		if isJSON(cmd) {

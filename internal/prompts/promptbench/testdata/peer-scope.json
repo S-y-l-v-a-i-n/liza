@@ -194,8 +194,8 @@
     {
       "role": "orchestrator",
       "variant": "wake BLOCKED_TASKS",
-      "before_bytes": 29803,
-      "after_bytes": 29803,
+      "before_bytes": 30202,
+      "after_bytes": 30202,
       "delta_bytes": 0,
       "reference_before_bytes": 0,
       "reference_after_bytes": 0
