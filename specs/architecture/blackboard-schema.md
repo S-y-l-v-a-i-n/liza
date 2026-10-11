@@ -668,7 +668,10 @@ MERGED or ABANDONED correction and creates new same-pair review work, retaining
 the original fence and any hold. Active or applied corrections cannot be
 replaced. Quarantined merged records retain immutable evidence; their already
 merged artifact changes require reconciliation in the fresh review. No abort
-clears an unsafe fence and no terminal record reopens.
+clears an unsafe fence and no terminal record reopens. Operator-only
+`--withdraw-pending CORRECTION --reason TEXT` clears pending and quarantines it
+when every correction since the last applied one is ABANDONED and none of
+their recorded commits is an integration ancestor (nothing to reconcile).
 
 Crosslinks, role pairs, unique ordered provenance and historical manifests are
 validated. Latest applied review supplies current acceptance/provider-reference

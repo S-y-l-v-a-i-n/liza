@@ -93,3 +93,18 @@ though the reviewed allocation did not need to change.
   consumer identity and independently reviewed allocation guarantees.
 - Clear the fence after failed apply: authorizes generation over evidence that
   may already have changed in integration.
+
+## Amendment (2026-10-11): operator withdrawal of an abandoned lineage
+
+D-108: two contract-mode corrections were cancelled before merging, and every
+unapplied correction was ABANDONED. Pending replacement could only re-fence, so
+the fence held 155 downstream tasks with no drifted evidence to reconcile.
+`amend-plan ORIGINAL --withdraw-pending CORRECTION --reason TEXT` lets an
+operator (never an orchestrator) clear the exact pending ID only when every
+correction since the last applied one is ABANDONED and none of the commits
+their history records is an integration ancestor. ABANDONED alone is not
+proof: a rollback skipped because another merge landed on top, or a
+cancellation after the ref moved, keeps the commit. Earlier corrections were
+reconciled by the applied review. It quarantines that ID and records history.
+Any other case refuses and must use `--replace-pending`. Human holds remain sticky. Fences over possibly drifted
+evidence are still never released.

@@ -2,6 +2,26 @@
 
 Deliberate debt with payback triggers. See CORE.md Rule 3 (DoD) for policy.
 
+## Cancellation can race an in-flight merge's ref update
+
+**What:** `wt-merge` persists its lifecycle preparation, then moves the
+integration ref by CAS (`performCASMerge`) without re-checking that the
+preparation is still live. A `cancel-task` committed in between retires the
+preparation (`AdvanceLifecycle`) and marks the task ABANDONED, yet the merge
+still lands its commit. The task stays ABANDONED with its commit in
+integration. `amend-plan --withdraw-pending` checks recorded commits against
+integration ancestry, so it refuses once the commit lands, but a withdrawal
+inside the window passes before it does.
+
+**Why deferred:** pre-existing in every task's cancel/merge path, not
+introduced by D-108; the fix touches the integration-mutation boundary and
+needs its own review. Found while reviewing D-108.
+
+**Payback trigger:** an ABANDONED task observed with its reviewed commit in
+integration ancestry, or the next change to `wt-merge` preparation handling.
+Fix: re-validate the preparation revision under the integration mutation lock
+before the CAS.
+
 ## Unstarted serial children cannot be bundled in flight
 
 **What:** ADR-0202 makes planners bundle a linear run of units into one task,

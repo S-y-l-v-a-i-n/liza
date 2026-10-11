@@ -15,7 +15,7 @@ import (
 )
 
 var amendPlanCmd = &cobra.Command{
-	Use:   "amend-plan <original-id> (--reason <text> | --apply <correction-id> | --replace-pending <correction-id> --reason <text>)",
+	Use:   "amend-plan <original-id> (--reason <text> | --apply <correction-id> | --replace-pending <correction-id> --reason <text> | --withdraw-pending <correction-id> --reason <text>)",
 	Short: "Review a bounded correction without retiring a merged plan's provider identity",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (retErr error) {
@@ -36,10 +36,17 @@ var amendPlanCmd = &cobra.Command{
 		reason, _ := cmd.Flags().GetString("reason")
 		apply, _ := cmd.Flags().GetString("apply")
 		replace, _ := cmd.Flags().GetString("replace-pending")
-		if cmd.Flags().Changed("apply") && (apply == "" || cmd.Flags().Changed("reason") || cmd.Flags().Changed("replace-pending")) || cmd.Flags().Changed("replace-pending") && replace == "" {
-			return cliValidationError("select --reason, --apply <correction>, or --replace-pending <correction> --reason")
+		withdraw, _ := cmd.Flags().GetString("withdraw-pending")
+		actions := 0
+		for _, name := range []string{"apply", "replace-pending", "withdraw-pending"} {
+			if cmd.Flags().Changed(name) {
+				actions++
+			}
 		}
-		input := ops.AmendPlanInput{TaskID: args[0], Reason: reason, Apply: apply, ReplacePending: replace}
+		if actions > 1 || cmd.Flags().Changed("apply") && (apply == "" || cmd.Flags().Changed("reason")) || cmd.Flags().Changed("replace-pending") && replace == "" || cmd.Flags().Changed("withdraw-pending") && withdraw == "" {
+			return cliValidationError("select --reason, --apply <correction>, --replace-pending <correction> --reason, or --withdraw-pending <correction> --reason")
+		}
+		input := ops.AmendPlanInput{TaskID: args[0], Reason: reason, Apply: apply, ReplacePending: replace, WithdrawPending: withdraw}
 		contract, _ := cmd.Flags().GetBool("contract")
 		if contract {
 			input.Mode = models.PlanAmendmentContract
@@ -81,6 +88,7 @@ func init() {
 	amendPlanCmd.Flags().String("trigger", "", "Explicit correction trigger for daily planning metrics")
 	amendPlanCmd.Flags().String("apply", "", "Adopt the exact independently reviewed MERGED pending correction")
 	amendPlanCmd.Flags().String("replace-pending", "", "Replace an unapplied MERGED or canceled pending correction")
+	amendPlanCmd.Flags().String("withdraw-pending", "", "Operator: release the fence of a canceled pending correction when nothing since the last applied correction reached integration")
 	amendPlanCmd.Flags().String("agent-id", "", "Orchestrator identity")
 	addChangedByFlag(amendPlanCmd)
 	addJSONFlag(amendPlanCmd)

@@ -113,6 +113,15 @@ func beginAmendmentCLI(t *testing.T, root, statePath string, extra ...string) st
 // independent review and merge boundaries, rather than synthesizing approval.
 func mergeAmendmentCLI(t *testing.T, root, statePath, correction string, output []models.OutputEntry) string {
 	t.Helper()
+	review := approveAmendmentCLI(t, root, statePath, correction, output)
+	runAmendmentCLI(t, root, "wt-merge", correction, "--agent-id", "code-plan-reviewer-1", "--json")
+	return review
+}
+
+// approveAmendmentCLI stops at independent approval so callers can drive the
+// merge boundary themselves; it returns the approved review commit.
+func approveAmendmentCLI(t *testing.T, root, statePath, correction string, output []models.OutputEntry) string {
+	t.Helper()
 	runAmendmentCLI(t, root, "claim-task", correction, "code-planner-1", "--json")
 	runAmendmentCLI(t, root, "write-checkpoint", correction,
 		"--intent", "Preserve the allocation and correct reviewed handoff scheduling",
@@ -150,7 +159,6 @@ func mergeAmendmentCLI(t *testing.T, root, statePath, correction string, output 
 	}
 	review := *mustFindTask(t, readState(t, statePath), correction).ReviewCommit
 	runAmendmentCLI(t, root, "submit-verdict", correction, "APPROVED", "--review-commit", review, "--agent-id", authority.ID, "--json")
-	runAmendmentCLI(t, root, "wt-merge", correction, "--agent-id", authority.ID, "--json")
 	return review
 }
 

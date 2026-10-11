@@ -18,10 +18,10 @@ import (
 )
 
 type AmendPlanInput struct {
-	TaskID, Reason, Apply, ReplacePending, ChangedBy string
-	Authority                                        *models.AgentAuthority
-	Mode                                             models.PlanAmendmentMode
-	Trigger                                          string
+	TaskID, Reason, Apply, ReplacePending, WithdrawPending, ChangedBy string
+	Authority                                                         *models.AgentAuthority
+	Mode                                                              models.PlanAmendmentMode
+	Trigger                                                           string
 }
 
 type AmendPlanResult struct {
@@ -45,10 +45,19 @@ func AmendPlan(root string, input AmendPlanInput) (*AmendPlanResult, error) {
 			return nil, err
 		}
 	}
-	if actor == "" || input.TaskID == "" || input.Apply != "" && input.ReplacePending != "" {
+	actions := 0
+	for _, action := range []string{input.Apply, input.ReplacePending, input.WithdrawPending} {
+		if action != "" {
+			actions++
+		}
+	}
+	if actor == "" || input.TaskID == "" || actions > 1 {
 		return nil, &PreconditionError{Reason: "amend-plan requires a task, actor and one action"}
 	}
-	if !input.Mode.IsValid() || input.Apply != "" && input.Mode != "" {
+	if input.WithdrawPending != "" && input.Authority != nil {
+		return nil, &PreconditionError{Reason: "withdraw-pending is operator-only"}
+	}
+	if !input.Mode.IsValid() || (input.Apply != "" || input.WithdrawPending != "") && input.Mode != "" {
 		return nil, &PreconditionError{Reason: "select a valid amendment mode only when beginning a correction"}
 	}
 	if input.Apply == "" && (strings.TrimSpace(input.Reason) == "" || len(input.Reason) > 4096) {
@@ -61,6 +70,9 @@ func AmendPlan(root string, input AmendPlanInput) (*AmendPlanResult, error) {
 		original := state.FindTask(input.TaskID)
 		if input.Apply != "" {
 			return applyPlanAmendment(root, state, resolver, original, input.Apply, actor, result, bb)
+		}
+		if input.WithdrawPending != "" {
+			return withdrawPendingAmendment(root, state, original, input.WithdrawPending, actor, input.Reason, result, bb)
 		}
 		mode := input.Mode
 		if input.ReplacePending != "" {
@@ -203,6 +215,50 @@ func cloneAmendmentOutput(output []models.OutputEntry) []models.OutputEntry {
 	var copied []models.OutputEntry
 	_ = json.Unmarshal(data, &copied)
 	return copied
+}
+
+// withdrawPendingAmendment releases a fence only when nothing since the last
+// applied correction reached integration. ABANDONED alone does not prove it: a
+// skipped rollback or a cancellation after the ref moved keeps the commit, so
+// every commit those corrections recorded must be absent from integration
+// ancestry. Earlier corrections were reconciled by the applied review (D-108).
+func withdrawPendingAmendment(root string, state *models.State, original *models.Task, id, actor, reason string, result *AmendPlanResult, bb *db.Blackboard) error {
+	if original == nil || original.PlanAmendment == nil || original.PlanAmendment.Pending != id {
+		return &PreconditionError{Reason: "withdraw-pending must name the exact pending correction"}
+	}
+	record := original.PlanAmendment
+	since := record.Corrections
+	if n := len(record.Applied); n > 0 {
+		since = since[slices.Index(since, record.Applied[n-1])+1:]
+	}
+	g := git.New(root)
+	head, err := g.GetCommitSHA(state.Config.IntegrationBranch)
+	if err != nil {
+		return err
+	}
+	for _, correctionID := range since {
+		correction := state.FindTask(correctionID)
+		if correction == nil || correction.Status != models.TaskStatusAbandoned {
+			return &PreconditionError{Reason: fmt.Sprintf("withdraw-pending requires every correction since the last applied one ABANDONED; %s may carry merged changes: use --replace-pending", correctionID)}
+		}
+		for _, entry := range correction.History {
+			if entry.Commit == nil {
+				continue
+			}
+			if carried, err := g.IsAncestor(*entry.Commit, head); err != nil || carried {
+				return &PreconditionError{Reason: fmt.Sprintf("withdraw-pending cannot prove %s left integration unchanged (commit %s): use --replace-pending", correctionID, *entry.Commit)}
+			}
+		}
+	}
+	record.Pending = ""
+	record.Quarantined = append(record.Quarantined, id)
+	note := fmt.Sprintf("pending correction withdrawn: %s: %s", id, strings.TrimSpace(reason))
+	original.History = append(original.History, models.TaskHistoryEntry{Time: time.Now().UTC(), Event: models.TaskEventPlanAmendment, Agent: &actor, Note: &note})
+	if err := statevalidate.ValidateCandidate(state, bb.ReadSnapshot, root, true, os.Stderr); err != nil {
+		return &PreconditionError{Reason: fmt.Sprintf("withdraw-pending candidate: %v", err)}
+	}
+	result.CorrectionID, result.Changed = id, true
+	return nil
 }
 
 func applyPlanAmendment(root string, state *models.State, resolver *pipeline.Resolver, original *models.Task, id, actor string, result *AmendPlanResult, bb *db.Blackboard) error {

@@ -456,7 +456,15 @@ Replacement accepts only the exact pending unapplied MERGED correction or one
 normally cancelled to ABANDONED. It quarantines that predecessor and creates
 fresh review work atomically. Active/applied corrections refuse; already merged
 artifact changes must be reconciled by the new review. No terminal task reopens
-and there is no abort that drops the fence. A human hold installed after begin
+and there is no abort that drops the fence over merged changes. When every
+correction since the last applied one is ABANDONED and none of their recorded
+commits reached integration, an operator may release the fence instead:
+
+```bash
+§BRAND_BINARY_NAME§ amend-plan ORIGINAL --withdraw-pending CORRECTION --reason "Cancelled; nothing merged"
+```
+
+A human hold installed after begin
 survives replacement and apply: only an operator `plan-check ORIGINAL --clear`
 releases it. Identical apply/replacement replay creates no duplicate work or
 history. Inspect `amends_plan`, `plan_amendment`, `output`, `plan_check` and

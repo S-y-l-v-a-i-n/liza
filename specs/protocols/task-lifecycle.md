@@ -181,7 +181,10 @@ quarantines the exact unapplied MERGED or normally cancelled ABANDONED
 correction and creates fresh same-pair review work while preserving the original
 fence and hold. Active or applied corrections refuse. Reconcile already merged
 artifact changes in the new review; no terminal task reopens and no abort drops
-the fence over unreviewed evidence.
+the fence over unreviewed evidence. When every correction since the last
+applied one is ABANDONED with no recorded commit in integration, an operator
+may instead release it with `--withdraw-pending
+CORRECTION --reason TEXT`.
 
 The original output manifest and ordered correction history preserve allocation
 authorship. Latest applied independent review controls current authority;

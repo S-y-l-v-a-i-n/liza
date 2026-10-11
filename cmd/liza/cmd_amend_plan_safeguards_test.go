@@ -118,6 +118,94 @@ func TestAmendPlanCLICanceledPendingCorrectionCanRecover(t *testing.T) {
 	}
 }
 
+func TestAmendPlanCLIWithdrawsCanceledPendingCorrection(t *testing.T) {
+	root, statePath := setupAmendmentCLI(t)
+	first := beginAmendmentCLI(t, root, statePath)
+	runAmendmentCLI(t, root, "cancel-task", first, "correction needs replacement", "--json")
+	runAmendmentCLI(t, root, "amend-plan", "original", "--replace-pending", first, "--reason", "fresh bounded correction", "--agent-id", "orchestrator-1", "--json")
+	second := readState(t, statePath).FindTask("original").PlanAmendment.Pending
+	assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", second, "--reason", "active", "--json")
+	runAmendmentCLI(t, root, "cancel-task", second, "correction abandoned", "--json")
+	if blocked := models.PendingPlanAmendment(readState(t, statePath), mustFindTask(t, readState(t, statePath), "ordinary")); blocked != "original" {
+		t.Fatalf("canceled pending correction should still fence consumers before withdrawal, got %q", blocked)
+	}
+	stdout := assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", second, "--reason", "nothing merged", "--agent-id", "orchestrator-1", "--json")
+	if !strings.Contains(stdout, "operator-only") {
+		t.Fatalf("wrong refusal: %s", stdout)
+	}
+	assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", first, "--reason", "not pending", "--json")
+	assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", second, "--json")
+	runAmendmentCLI(t, root, "amend-plan", "original", "--withdraw-pending", second, "--reason", "nothing merged", "--json")
+	after := readState(t, statePath)
+	record := after.FindTask("original").PlanAmendment
+	if record.Pending != "" || !slices.Equal(record.Quarantined, []string{first, second}) {
+		t.Fatalf("withdrawal did not quarantine the pending correction: %+v", record)
+	}
+	if blocked := models.PendingPlanAmendment(after, mustFindTask(t, after, "ordinary")); blocked != "" {
+		t.Fatalf("withdrawal left consumers fenced by %s", blocked)
+	}
+	history := after.FindTask("original").History
+	if last := history[len(history)-1]; last.Event != models.TaskEventPlanAmendment || last.Note == nil || !strings.Contains(*last.Note, "withdrawn: "+second) {
+		t.Fatalf("withdrawal history not recorded: %+v", last)
+	}
+}
+
+func TestAmendPlanCLIWithdrawRefusesMergedUnappliedLineage(t *testing.T) {
+	root, statePath := setupAmendmentCLI(t)
+	first := beginAmendmentCLI(t, root, statePath)
+	mergeAmendmentCLI(t, root, statePath, first, mustFindTask(t, readState(t, statePath), "original").Output)
+	runAmendmentCLI(t, root, "amend-plan", "original", "--replace-pending", first, "--reason", "reconcile predecessor", "--agent-id", "orchestrator-1", "--json")
+	second := readState(t, statePath).FindTask("original").PlanAmendment.Pending
+	runAmendmentCLI(t, root, "cancel-task", second, "correction abandoned", "--json")
+	stdout := assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", second, "--reason", "merged predecessor", "--json")
+	if !strings.Contains(stdout, first+" may carry merged changes") {
+		t.Fatalf("wrong refusal: %s", stdout)
+	}
+}
+
+// A failed merge whose rollback is skipped because another merge landed on top
+// leaves the correction commit in integration; cancelling it reaches ABANDONED.
+func TestAmendPlanCLIWithdrawRefusesRetainedIntegrationCommit(t *testing.T) {
+	root, statePath := setupAmendmentCLI(t)
+	correction := beginAmendmentCLI(t, root, statePath)
+	review := approveAmendmentCLI(t, root, statePath, correction, mustFindTask(t, readState(t, statePath), "original").Output)
+	script := "#!/bin/sh\nnext=$(git commit-tree \"$(git rev-parse integration^{tree})\" -p integration -m concurrent) && git update-ref refs/heads/integration \"$next\"\nexit 1\n"
+	writeAmendmentFile(t, root, "scripts/integration-test.sh", script)
+	if err := os.Chmod(filepath.Join(root, "scripts/integration-test.sh"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := executeRootCommandCapture(t, root, "wt-merge", correction, "--agent-id", "code-plan-reviewer-1", "--json"); err == nil {
+		t.Fatal("integration failure expected")
+	}
+	if status := mustFindTask(t, readState(t, statePath), correction).Status; status != models.TaskStatusIntegrationFailed {
+		t.Fatalf("correction status = %s, want INTEGRATION_FAILED", status)
+	}
+	testhelpers.MustGit(t, root, "merge-base", "--is-ancestor", review, "integration")
+	runAmendmentCLI(t, root, "cancel-task", correction, "correction abandoned", "--json")
+	stdout := assertAmendmentRefusalAtomic(t, root, statePath, "amend-plan", "original", "--withdraw-pending", correction, "--reason", "retained merge", "--json")
+	if !strings.Contains(stdout, "cannot prove "+correction+" left integration unchanged") {
+		t.Fatalf("wrong refusal: %s", stdout)
+	}
+}
+
+// Corrections before the latest applied one were reconciled by its review, so
+// a merged quarantined predecessor no longer blocks withdrawal.
+func TestAmendPlanCLIWithdrawScopesToCorrectionsSinceLastApply(t *testing.T) {
+	root, statePath := setupAmendmentCLI(t)
+	output := mustFindTask(t, readState(t, statePath), "original").Output
+	first := beginAmendmentCLI(t, root, statePath)
+	mergeAmendmentCLI(t, root, statePath, first, output)
+	second := beginAmendmentCLI(t, root, statePath, "--replace-pending", first)
+	mergeAmendmentCLI(t, root, statePath, second, output)
+	runAmendmentCLI(t, root, "amend-plan", "original", "--apply", second, "--agent-id", "orchestrator-1", "--json")
+	third := beginAmendmentCLI(t, root, statePath)
+	runAmendmentCLI(t, root, "cancel-task", third, "correction abandoned", "--json")
+	runAmendmentCLI(t, root, "amend-plan", "original", "--withdraw-pending", third, "--reason", "nothing merged since apply", "--json")
+	if record := readState(t, statePath).FindTask("original").PlanAmendment; record.Pending != "" || !slices.Equal(record.Quarantined, []string{first, third}) {
+		t.Fatalf("withdrawal did not release the fence: %+v", record)
+	}
+}
+
 func TestAmendPlanCLIRepeatedCorrectionsAppendProducerWithoutRemapping(t *testing.T) {
 	root, statePath := setupAmendmentCLI(t)
 	originalReview := *readState(t, statePath).FindTask("original").ReviewCommit
