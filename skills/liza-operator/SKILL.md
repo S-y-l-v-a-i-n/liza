@@ -22,16 +22,22 @@ version-specific guidance "(as of <build/date>; verify)".
    `codex`) are on a **known-good, freshly-built** version. Update — but "latest" is not always right:
    a new build can regress. If agents start failing in a new way right after an update, suspect the build: pin to
    last-known-good, rebuild, re-verify. Rebuild after pulling §BRAND_BINARY_NAME§ source (e.g. `go build` the binary you run).
-   A mid-run rebuild takes effect by restarting every supervisor, watch and TUI together, never piecemeal:
-   mixed binaries can disagree on liveness. Heartbeats live in side records beside state.yaml, so read
+   A mid-run rebuild reaches CLI calls at once but supervisors only on restart; restart every supervisor,
+   watch and TUI together, never piecemeal: mixed binaries can disagree on liveness. While old processes
+   remain, diff the state model between the builds: an old process silently drops a new state field it
+   rewrites. Heartbeats live in side records beside state.yaml, so read
    liveness through the CLI, not by parsing state.yaml.
 2. **Goal** — what feature, where's the spec, what is the intended deliverable of this run (planning-only counts)? Unclear → ask first.
 3. **State** — `§BRAND_BINARY_NAME§ status` + `§BRAND_BINARY_NAME§ get tasks`; **validation** — `§BRAND_BINARY_NAME§ validate` before trusting state.
-4. **Start the default watch** — use the human's latest requested interval for the rest of the session;
+4. **Authority** — rebuild the standing grants from the notes (trigger, permitted action, exclusions, rollback,
+   revocation) and apply them across rounds and restarts; record new grants the same way. Typical grants:
+   clearing a hold whose input the reviewed plan already gates downstream; switching to a pre-validated provider
+   configuration during a quota outage (reviewer lists are quorum slots, not fallbacks; restore it afterwards).
+5. **Start the default watch** — use the human's latest requested interval for the rest of the session;
    otherwise default to ten minutes (`/loop` or the available recurring mechanism). Use on-call reporting
    only when explicitly requested. Keep running rounds until the human stops the watch, the run reaches a
    terminal state, or an escalation blocks progress.
-5. **First report** — starting state, the goal you understood, the current delivery objective, and the dominant blocking chain if any.
+6. **First report** — starting state, the goal you understood, the current delivery objective, and the dominant blocking chain if any.
 
 # Operating constraints (never bypassed, even with full authority)
 1. **No false success** — done/green/merged only if the blackboard *and* validation say so.
@@ -52,9 +58,10 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
 
 # The watch (each round — idempotent: read state, act on what changed, safe to repeat)
 1. **Observe** — `§BRAND_BINARY_NAME§ status`, `§BRAND_BINARY_NAME§ get tasks`, `§BRAND_BINARY_NAME§ get agents`,
-   `§BRAND_BINARY_NAME§ analyze` (circuit breaker/thrash), `§BRAND_BINARY_NAME§ get anomalies`, and
-   `§BRAND_BINARY_NAME§ validate`. Use bounded projections and sequential state reads; blank or truncated
-   output is tool uncertainty, not an empty run. Diff against last round.
+   `§BRAND_BINARY_NAME§ analyze` (circuit breaker/thrash), `§BRAND_BINARY_NAME§ get anomalies`,
+   `§BRAND_BINARY_NAME§ validate`, and `alerts.log` since the last round (AWAITING HUMAN, UNRESOLVED, BLOCKED). `analyze` is not read-only: a
+   HALT pattern trips the breaker and pauses the run, so check the mode after it. Use bounded projections and
+   sequential state reads; blank or truncated output is tool uncertainty, not an empty run. Diff against last round.
 2. **Health** — investigate every concern immediately. At minimum, detect:
    - a parked system: `sprint.status: CHECKPOINT` or a non-RUNNING mode holds every blocked role, and
      `§BRAND_BINARY_NAME§ status` prints the remedy. Rule it out before diagnosing any single agent;
@@ -67,16 +74,22 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
    - failed convergence: a successor blocked before its predecessor's failure point, the same unresolved
      commitment holding several consumers, or repeated correction with no consumer progress;
    - widespread dependency holds: many claimable-looking tasks waiting on one provider — check what that
-     provider supplies each of them before calling it metering.
-3. **Act** — resolve confirmed concerns within authority; otherwise hold and escalate. Distinguish
+     provider supplies each of them before calling it metering;
+   - excessive orchestrator wake-ups: wakes that end with no action, or repeated remediation of a cause
+     nobody treats.
+3. **Act** — resolve confirmed concerns within authority; otherwise hold and escalate. Unblocking by symptom
+   repair is fine, but every block, supersession and repair — yours or the orchestrator's — also gets a root
+   cause in the notes: mechanism, its D-n family, and the durable fix. Distinguish
    transition races from genuine stalls before mutating state. Intentional dependency metering is a
    hypothesis, checked against the consumers' actual input needs and the expanded graph, never an
    automatic non-finding.
-4. **Forks** — anything past authority: hold, escalate.
-5. **Report** — report (format below).
-6. **Frictions → notes** — every round, collect the frictions since the last one: excessive token
-   consumption, workflow contention, tool errors, manual actions you performed, and decision requests to
-   the human. Report unmeasurable token usage as unmeasured, never as zero. Record each friction and
+4. **Forks** — anything past authority: hold, escalate. Give each option's pros and cons and recommend one
+   with its rationale. Offer to do the work yourself; ask the human to act only where you cannot (sandbox,
+   credentials, authority).
+5. **Report** — report (format below). Terminal output is transient: whatever matters goes in the notes too.
+6. **Frictions → notes** — every round, collect the frictions since the last one and analyze them on three
+   axes — token consumption, errors, workflow contention — plus manual actions you performed and decision
+   requests to the human. Report unmeasurable token usage as unmeasured, never as zero. Record each friction and
    intervention in `§BRAND_PROJECT_DIRNAME§/operator-notes.md`, including self-recovered ones; name new
    entries in the report so the human can veto/amend.
 7. **Queue** — is the next goal ready? If the current run is nearing completion and none is queued, propose planning.
@@ -89,7 +102,9 @@ round shows the symptom:
 - error and refusal tallies across supervisor logs, separating failures from expected diagnostics;
 - long turns: where the time goes (validation runs, setup, waits);
 - work redone: HEAD- or input-bound work repeated after integration or inputs moved;
-- scope creep: code and tasks beyond what the goal and spec require.
+- scope creep: code and tasks beyond what the goal and spec require;
+- run duration: from task histories (UTC), claim→merge times outside stalled windows; the estimate is the
+  larger of longest chain × median and remaining tasks ÷ best sustained merge rate.
 
 Quiet round → one line: *"Steady: no changes, no forks, no frictions."*
 
@@ -149,7 +164,8 @@ issue with its maintainers; the human decides. Rank by token consumption and wor
 - P3: low cost and contention (diagnostics, hygiene, rare single incidents).
 Each entry: evidence (cite journal entries, don't restate), mechanism, why this priority, owner, fix as
 a hypothesis with its validation (the observation that would disprove it), related IDs, dated status.
-Keep a short top-priority list and re-rank it with the human. Durable fixes for register defects are
+Maintain a ranked list of the issues to hand over to the §BRAND_NAME_TITLE§ maintainers; re-rank it with the human as
+entries change. Durable fixes for register defects are
 made only on human request (routine recovery stays delegated); track fix status (commit, rebuild
 needed, verified in a run or not) only for those.
 
@@ -273,18 +289,27 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   `§BRAND_BINARY_NAME§ status`; resume can also advance CHECKPOINT/COMPLETED sprints.
 - **Recover a task** — by cause, not by default (hazards below): environment/stale ownership → narrow
   supported recovery; wrong or excessive dependency → graph repair; corrected inputs → unblock (with
-  rebase); product ambiguity → the human's minimal decision routed to the source owner; an unsupported
+  rebase); product ambiguity → the human's minimal decision, done in place by the blocked task when it owns
+  the affected files (a named exception), else routed to the source owner; an unsupported
   assumption → the owning specialist; supersession only when immutable reviewed ancestry cannot consume
   the correction. Closure is the consumer progressing past the old failure point, not a new task ID.
   Before trusting a clean/claimable state, use `/§BRAND_BINARY_NAME§-logs` on the agents that already
-  touched the task; blackboard task data alone is not enough.
+  touched the task; blackboard task data alone is not enough. Handle blocks fast: read each new BLOCKED
+  reason the round it appears. A correction plan costs a plan, a review and usually a coding task; when the
+  orchestrator commissions one for a repair the blocked task could make, propose the in-place route first.
 - **Re-run** a flaky validation **once** before believing a red.
+- **Throttle on measured contention** — baseline failure rate and task progress, lower `config.max_instances`, let extra agents
+  drain, re-measure both, and roll back if contention persists or progress stalls; restore a human-set cap once contention clears. Never kill
+  processes or delete locks to relieve it.
+- **Contain retry storms** — on repeated equivalent failures (launch, setup or provider churn), `§BRAND_BINARY_NAME§ pause`, probe
+  setup and provider health with bounded checks, and resume only a pause you own once the probe passes. Human
+  pauses, unclear stop provenance and breaker HALTs stay escalations.
 
 # Recovery patterns & hazards
-- **Preserve before destructive release** — before cleanup, `recover-agent`, supersession, or replacement,
-  record the task branch, HEAD, and worktree status, then preserve task-owned changes in a commit; pin its SHA
-  with a tag when cleanup removes the branch. If the operator cannot legitimately author that commit, keep the
-  task blocked and route preservation to its agent or the human. This commit rule does not apply to the documented
+- **Preserve before destructive release** — before cleanup, cancellation, `recover-agent`, supersession, or
+  replacement, record the task branch, HEAD, and worktree status, then preserve task-owned changes in a commit
+  (copy untracked drafts); pin its SHA with a tag when cleanup removes the branch. If the operator cannot
+  legitimately author that commit, keep the task blocked and route preservation to its agent or the human. This commit rule does not apply to the documented
   `unblock-task --rebase-on --allow-dirty` path: snapshot first, then verify HEAD and restored tracked changes.
 - **Clean state is not recovery evidence** — if a task was BLOCKED, rejected repeatedly,
   superseded, abandoned, integration-failed, or recovered after multiple agent attempts, analyze the
@@ -311,7 +336,13 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   Add `--allow-dirty` only when tracked worktree changes should be autostashed; untracked overwrite
   risks are refused. Rebase conflicts remain `BLOCKED` with fresh repair metadata.
 - **Add the replacement BEFORE cancelling** — when the correct repair is a replacement task, add it first.
-  Cancelling first creates a zero-pending-work gap that can fire a premature phase trigger.
+  Cancelling first creates a zero-pending-work gap that can fire a premature phase trigger. A provider named
+  in consumers' `provider_reservations` cannot be cancelled until those placements are released.
+- **Preflight a proposed ruling** — verify its route exists (the engine carrier; a command's semantics in
+  source) and that the named owner can act on it (file ownership, pinned scope). Trace the full graph —
+  `depends_on`, provider dependencies and reservations, parents, transitive order edges — not `depends_on`
+  alone. Relay an approved ruling at once; waiting on slow commit hooks lets agents re-block on the old question.
+  Track each relay to closure: sent → applied → consumer progressed past the old failure point.
 - **Audit the graph after replacement** — verify the replacement has only its intended upstream providers,
   every non-terminal consumer points to the replacement, no dependency points backward or cycles, and task
   counts plus global validation reconcile. Do not retarget an actively executing task; first move it to a safe
@@ -358,12 +389,14 @@ WATCH — <time> · Phase: <spec|coding|integration>
 Since last: <merged / advanced / newly blocked>
 Delivery: planning merged <n> · implementation merged <n> · integrated <demonstrated|no> · final evidence <complete|pending|failed|unavailable> · Must coverage <x/y>, Should/Could deferred <n>, Won't preserved
 Blocking chain: <provider → held consumers → next concrete change | none>
+Throughput: <live doers> · claimable <n> by role (status --json tasks.claimable_by_role) · staffing deficit <n> (repair-agent-pool --dry-run) · critical path <root, length>
 I handled: <actions + one-line why | "nothing — steady">
-Human call: <decision · Options (1)…(2)… · my read> | "none"
+Queue: <next goal: empty | drafting | ready>
 Health: <steady | drift on task-X | thrash on coding-pair>
 Frictions: <tokens | contention | tool errors | manual actions | human decisions — one line each | none>
-Queue: <next goal: empty | drafting | ready>
 Logged: <operator-notes entry | durable lesson promoted | none>
+
+On you: <every open decision (options · pros/cons · recommendation) and action only the human can do; repeated each report until done | none>
 ```
 Quiet: `Steady — phase <x>, <n> tasks in flight, no forks.`
 
