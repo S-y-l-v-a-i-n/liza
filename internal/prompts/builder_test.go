@@ -3578,6 +3578,77 @@ func TestBuildRoleContext_ValidationCommandShapeGuidance(t *testing.T) {
 	}
 }
 
+// D-97: producers of strict coding children scope each child's validation, and
+// their reviewers reject a long shared suite repeated for regression alone.
+// An architect produces coding children only through direct allocation; epic
+// and integration outputs are not strict coding children of these roles.
+func TestBuildRoleContext_ValidationScopeGuidance(t *testing.T) {
+	const producerRule = "do not repeat a long shared suite for regression alone: strict coding admission runs every listed command"
+	const reviewerRow = "| Validation scope | A child's validation repeats a long shared suite"
+	projectRoot := setupPipelineConfig(t)
+	resolver := testPipelineResolver(t)
+
+	for _, tc := range []struct {
+		role, agentID string
+		direct, want  bool
+	}{
+		{role: "code-planner", agentID: "code-planner-1", want: true},
+		{role: "architect", agentID: "architect-1", direct: true, want: true},
+		{role: "architect", agentID: "architect-1"},
+		{role: "epic-planner", agentID: "epic-planner-1"},
+		{role: "integration-analyst", agentID: "integration-analyst-1"},
+	} {
+		t.Run(fmt.Sprintf("producer/%s/direct=%v", tc.role, tc.direct), func(t *testing.T) {
+			data := &RoleContextData{
+				DirectCodingAllocationAvailable: tc.direct,
+				Role:                            tc.role, AgentID: tc.agentID, RoleType: "doer",
+				TaskID: "task-validation-scope", Description: "Produce child tasks",
+				DoneWhen: "Output entries are ready", Scope: "specs",
+				Worktree:    projectRoot + "/.worktrees/task-validation-scope",
+				GoalSpecRef: "specs/goal.md", GoalSlug: "goal-slug",
+				IntegrationBranch: "integration", ProjectRoot: projectRoot, IterationNum: 1,
+			}
+			sections, err := resolver.ContextSections(tc.role)
+			if err != nil {
+				t.Fatalf("ContextSections: %v", err)
+			}
+			output, err := BuildRoleContext(tc.role, sections, data)
+			if err != nil {
+				t.Fatalf("BuildRoleContext: %v", err)
+			}
+			if got := strings.Contains(output, producerRule); got != tc.want {
+				t.Fatalf("%s prompt contains validation scope rule = %v, want %v:\n%s", tc.role, got, tc.want, output)
+			}
+		})
+	}
+
+	tmpl := template.Must(template.New("").Funcs(funcMap).ParseFiles(
+		"templates/blocks/review_instructions.tmpl",
+		"templates/blocks/await_verdict_loop.tmpl",
+	))
+	for _, tc := range []struct {
+		role         string
+		direct, want bool
+	}{
+		{role: "code-plan-reviewer", want: true},
+		{role: "architecture-reviewer", direct: true, want: true},
+		{role: "architecture-reviewer"},
+		{role: "epic-plan-reviewer"},
+		{role: "integration-reviewer"},
+	} {
+		t.Run(fmt.Sprintf("reviewer/%s/direct=%v", tc.role, tc.direct), func(t *testing.T) {
+			data := RoleContextData{DirectCodingAllocationAvailable: tc.direct, Role: tc.role, TaskID: "task-review", AgentID: "reviewer-1", Worktree: "/tmp/worktree", BaseCommit: "base123", ReviewCommit: "review123", GoalBaseCommit: "goalbase123", GoalSlug: "goal-slug"}
+			var buf bytes.Buffer
+			if err := tmpl.ExecuteTemplate(&buf, "review-instructions", &data); err != nil {
+				t.Fatalf("failed to execute review-instructions template: %v", err)
+			}
+			if got := strings.Count(buf.String(), reviewerRow); got != map[bool]int{true: 1}[tc.want] {
+				t.Fatalf("%s checklist has %d validation scope rows, want present=%v:\n%s", tc.role, got, tc.want, buf.String())
+			}
+		})
+	}
+}
+
 func TestReviewInstructions_PostVerdictResubmissionBoundaryGuidance(t *testing.T) {
 	tmpl := template.Must(template.New("").Funcs(funcMap).ParseFiles(
 		"templates/blocks/review_instructions.tmpl",

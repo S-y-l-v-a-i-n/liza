@@ -96,3 +96,15 @@ them, so an unclaimable task was reported as created and stalled its dependents
 for hours. The check adopts and executes nothing and does not replace claim,
 which remains authoritative as integration moves. The
 [runtime protocol](../../protocols/acceptance-evidence.md) states its scope.
+
+## Amendment (2026-10-10)
+
+A child's canonical list is its own proof plus the shared tests covering code it
+changes. Plans had copied whole long shared suites (real-database, e2e, eval runs)
+into every child for regression alone, so each admission, correction and repair
+re-ran them on the critical path (D-97). Code-planner and direct-allocation
+architect prompts state the scope rule, and their reviewers reject unscoped lists;
+whole-suite regression runs in goal integration. Admission and receipts are unchanged: every listed
+command still runs. A deferred validation tier (periodic batches whose receipts
+satisfy deferred commands, with merge bisect) is not adopted; see
+[TECH_DEBT.md](../../../TECH_DEBT.md#submit-admission-has-no-deferred-validation-tier).

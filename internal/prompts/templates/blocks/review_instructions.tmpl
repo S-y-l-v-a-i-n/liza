@@ -119,6 +119,7 @@ REVIEW CHECKLIST:
 | Task-output JSON location | Task-output JSON artifact missing from diff next to the plan artifact at specs/plans/{{.GoalSlug}}/TIMESTAMP-{{.TaskID}}-output.json, or any committed task-output JSON appears under {{projectDirName}}/agent-outputs/ |
 | output[] matches plan | Each output[] entry's concise intent, boundary, dependencies, validation, and anchored refs are semantically and referentially consistent with the plan; reject detailed Markdown copied merely for character identity |
 | validation satisfiable | An output[] validation command can exit 0 without exercising its intended check, or hook/check intent is not declared in durable plan/task text. For a hook-runner command (e.g. `pre-commit run --files <paths>`), match its paths against each intended hook's effective filters (global and per-hook files/exclude/types, after any config change an earlier task lands): unless it always runs (e.g. `always_run: true`), a hook matching none reports Skipped; an executing hook must still prove its check ran |
+{{template "validation-scope-row"}}
 | Test-file admission | A behavior-changing coding child confines its tests to paths matching none of the submission test-file patterns ({{testFilePatterns}}; name patterns match the basename, `__tests__/` and `tests/` that directory at any depth) — submit-for-review refuses its diff |
 | validation command shape | A validation[] command is not single-purpose and agent-executable. Forbidden validation command shapes: `cd ... &&`, command substitution/backticks, polling or tail pipelines, and task artifact paths outside the worktree. |
 {{- if .DeclareValidationPrerequisites}}
@@ -340,6 +341,7 @@ REVIEW CHECKLIST:
 | Provider freeze | Early epic Provider Ask Inventory coverage is not reconciled against assigned epics and source obligations; declared asks are unavailable, or an ask lacks a provider answer or concrete deferral with allocated investigation/correction and a legal affected-scope wait |
 {{- if .DirectCodingAllocationAvailable}}
 {{template "corrective-placement-row"}}
+{{template "validation-scope-row"}}
 | Direct coding allocation | Direct output does not use one exact Scope, flat entries all coding_allocation: true sharing arch_ref, or each exact plan_ref lacks a strict Acceptance Contract, future coder-authored manifest path, owned_files or nonempty canonical validation; design/allocation or writer waits are unreviewed, RCA-required defects skip code-planning, or manual handoff disposition is bypassed |
 {{- else}}
 | Direct coding unavailable | Output uses coding_allocation despite this frozen topology having no direct coding route |
@@ -462,6 +464,10 @@ rejection time, and `timeout_seconds` is reported for visibility only.
 | Child feasibility | A child's frozen files or preserve directive exclude what its obligations need (tests, acceptance manifest, a required correction), or an unchecked existing-source premise restricts it; only an unfinished provider's delivery is deferrable |
 | Known consumers | An owned shared interface omits or contradicts a merged consumer's need, and no allocated correction or investigation holds the affected scope; a gap note alone does not suffice |
 | Human-owned decision | An output relies on a human-owned decision without a recorded ruling or a declared wait on an allocated investigation, correction or decision; asking is no hold |
+{{- end -}}
+
+{{- define "validation-scope-row" -}}
+| Validation scope | A child's validation repeats a long shared suite (whole integration, e2e or eval run) without naming the changed code it covers; regression-only whole-suite runs belong to integration |
 {{- end -}}
 
 {{- define "corrective-placement-row" -}}

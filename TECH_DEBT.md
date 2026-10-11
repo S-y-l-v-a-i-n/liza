@@ -1213,6 +1213,25 @@ canonical command whose submit parent is dead. Lock scope: an operator release
 or cancel timing out on a task in canonical execution. Reuse: a resubmission of
 an unchanged candidate repeating a batch longer than ten minutes.
 
+## Submit admission has no deferred validation tier
+
+**What:** ADR-0134's 2026-10-10 amendment scopes each child's canonical list by
+guidance only (D-97 (b)). Shared regression suites outside a child's declared
+coverage now run only in goal integration, which attributes failures by path
+ownership, not by merge. Missing: a contract field for deferred commands, a
+receipt that can certify "deferred to batch" (an ADR-0134 change), an
+engine-scheduled periodic batch on integration, automatic bisect over merges
+since the last green batch with routing to the culprit writer, and a ruling for
+in-flight done_when texts that name deferred commands.
+
+**Why deferred:** human scope decision (2026-10-10): ship the prompt-only
+mitigations first. The engine tier needs a scheduler, failure routing and an
+acceptance-authority change.
+
+**Payback trigger:** on a run using the scoped guidance, a regression first
+surfaces at goal integration and needs multi-task rework, or per-submit
+admission still exceeds ten minutes at normal load.
+
 ## Duplicate acceptance submit fixtures
 
 **What:** `testhelpers.SetupAcceptanceSubmitScenario` overlaps the unexported

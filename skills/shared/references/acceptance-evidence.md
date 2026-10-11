@@ -25,9 +25,12 @@ Replace the illustrative command with the project's executable command. Every ID
 must already exist in the document's strict `Source References` → `Obligation
 Coverage`. Allocate the child's complete subset without copying requirement prose.
 The declaration's ordered `validation` must equal the child's `output[].validation`
-and eventual task `validation`. Commands obey the existing command-safety contract;
-the coder's manifest cannot add or replace them. Whole-document refs are valid only
-when exactly one declaration is present.
+and eventual task `validation`. Name the child's own proofs plus shared tests
+covering code it changes; a long shared suite listed for regression alone reruns at
+every submission and correction, while integration runs whole suites once. Commands
+obey the existing command-safety contract; the coder's manifest cannot add or
+replace them. Whole-document refs are valid only when exactly one declaration is
+present.
 
 The direct planning parent must independently approve and merge this source, with
 retained review range and output entry allocating the child's refs and commands.

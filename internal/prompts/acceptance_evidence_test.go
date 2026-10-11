@@ -100,3 +100,41 @@ func TestAcceptanceEvidencePlannerAndReviewerInstructions(t *testing.T) {
 		})
 	}
 }
+
+// Strict admission runs the canonical list, so a strict coder is told not to
+// pre-run it in full; the retry advice must not contradict the gate-only rule
+// for single_use runtime inputs. Legacy coders execute nothing at submit.
+func TestAcceptanceEvidenceSubmissionValidationAdvice(t *testing.T) {
+	const advice = "Before submitting, run focused tests, not the full canonical list."
+	const singleUseException = "unless it uses a single_use runtime input: only the gate runs"
+	const gateOnly = "Never run a command using a single_use input yourself"
+	singleUse := []models.RuntimeInput{{ID: "fixture", Commands: []string{"run-tests"}, Consumption: models.RuntimeInputSingleUse}}
+	for _, tc := range []struct {
+		name         string
+		source       *models.AcceptanceSource
+		inputs       []models.RuntimeInput
+		want, absent []string
+	}{
+		{name: "strict", source: &models.AcceptanceSource{}, want: []string{advice, singleUseException}, absent: []string{gateOnly}},
+		{name: "legacy", absent: []string{advice, singleUseException}},
+		{name: "strict single_use", source: &models.AcceptanceSource{}, inputs: singleUse, want: []string{advice, singleUseException, gateOnly}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := RoleContextData{Role: "coder", TaskID: "task-42", AcceptanceSource: tc.source, RuntimeInputs: tc.inputs, ValidationCommands: []string{"run-tests"}}
+			output, err := BuildRoleContext("coder", []string{"assigned-task", "submission-phase"}, &data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(output, want) {
+					t.Errorf("missing %q in %s", want, output)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(output, absent) {
+					t.Errorf("unexpected %q in %s", absent, output)
+				}
+			}
+		})
+	}
+}

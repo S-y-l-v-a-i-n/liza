@@ -6,6 +6,9 @@ After implementation and tests pass, you MUST submit for review:
 Commit the declared acceptance manifest with a complete obligation-to-proof mapping first.
 Submission reruns canonical validation on clean committed code after rebase. Missing mappings,
 failed commands, dirty files, or stale source/commit evidence block before reviewer assignment.
+Before submitting, run focused tests, not the full canonical list. After an admission failure,
+re-run only the failing command, unless it uses a single_use runtime input: only the gate runs
+that one, so fix and resubmit.
 {{- end}}
 1. Stage the intended files for this task: git -C {{.Worktree}} add <files>
 2. Create the submission commit for this task using the required git commit workflow for this environment.
