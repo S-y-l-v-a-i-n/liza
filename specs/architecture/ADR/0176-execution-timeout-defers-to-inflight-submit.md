@@ -9,6 +9,20 @@ Amended 2026-10-06 (D-56): the acceptance batch maximum is 14400 s
 under multi-agent load exceed one hour. `MaxInflightSubmitGrace` derives from it,
 so the 3600 s batch and 70 minute cap below now read 14400 s and 4 h 10 min.
 
+Amended 2026-10-11 (D-90): the provider harness has its own per-command
+lifetime, which this decision did not cover. Claude Code moves a foreground
+command to the background at its timeout (600 s) and stops it 30 minutes later,
+and stops an explicit background command at its requested timeout, capped by
+`BASH_MAX_TIMEOUT_MS` (2 h by default). Submits whose batch ran past about
+40 minutes were killed mid-batch; their preparations stayed (effects unknown),
+so same-generation retries were refused until an owner-ending operation.
+Claude sessions now launch with `BASH_MAX_TIMEOUT_MS` raised to
+`MaxInflightSubmitGrace` unless already higher, leaving the default timeout of
+ordinary commands unchanged. `AGENT_TOOLS.md` tells agents to start
+`submit-for-review` with `run_in_background: true` and that timeout. A
+runtime-input declaration of the variable still strips it (ADR-0169).
+Preparation retention after a kill is unchanged.
+
 ## Context
 
 `submit-for-review` runs a strict task's canonical acceptance commands

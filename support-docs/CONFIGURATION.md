@@ -1548,6 +1548,7 @@ Agent identity is auto-assigned by default (`coder-1`, or `coder-2` if `coder-1`
 
 The `--agent-id` flag takes precedence over `§BRAND_ENV_PREFIX§_AGENT_ID`.
 After resolution, `§BRAND_BINARY_NAME§ agent` exports the resolved value as `§BRAND_ENV_PREFIX§_AGENT_ID` to the spawned provider CLI, including `-i` interactive sessions. This environment variable is how SessionStart and guard hooks distinguish §BRAND_NAME_TITLE§ MAS sessions from Pairing sessions. Project env overlays such as `claude.env` cannot override the resolved agent ID.
+Claude sessions also get `BASH_MAX_TIMEOUT_MS` raised to the submit grace (15000000 ms, ADR-0176) unless the ambient environment or `claude.env` sets a higher value, so a `submit-for-review` started in the background is not stopped before its canonical batch can finish. A project that declares `BASH_MAX_TIMEOUT_MS` as a runtime input has it stripped instead.
 
 **Agent ID format**: `{role}-{number}` — e.g. `coder-1`, `code-reviewer-1`, `planner-1`.
 

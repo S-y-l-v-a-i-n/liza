@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -42,7 +43,36 @@ func resolveLaunchEnvironment(plan LaunchPlan, root, agentID, generation string,
 			return nil, fmt.Errorf("runtime_input_provider_collision:%s: an agent env file sets %s, which is declared as a runtime input and stripped from sessions; remove it from the env file, or rename the runtime input if the agent CLI needs it", name, name)
 		}
 	}
+	env = withClaudeCommandCeiling(plan, env)
 	return scrubDeniedNames(agentProcessEnv(env, agentID, generation), deny), nil
+}
+
+// claudeCommandCeilingName caps the timeout a Claude Bash call may request,
+// which is also the lifetime of a command started with run_in_background.
+const claudeCommandCeilingName = "BASH_MAX_TIMEOUT_MS"
+
+// withClaudeCommandCeiling lets a Claude session's command live as long as the
+// supervisor lets the agent's own submit run (ADR-0176). Otherwise the provider
+// stops a legitimate up-to-4 h canonical batch at its 2 h default ceiling
+// (D-90). A larger value already set is kept; the default timeout of ordinary
+// commands is left alone, so commands that ask for nothing stay bounded.
+func withClaudeCommandCeiling(plan LaunchPlan, env []string) []string {
+	if plan.ProviderKey != "claude" && plan.ToolName != "claude" {
+		return env
+	}
+	ceiling := ops.MaxInflightSubmitGrace.Milliseconds()
+	if value, ok := envLookup(env, claudeCommandCeilingName); ok {
+		if current, err := strconv.ParseInt(value, 10, 64); err == nil && current > ceiling {
+			ceiling = current
+		}
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, claudeCommandCeilingName+"=") {
+			out = append(out, entry)
+		}
+	}
+	return append(out, claudeCommandCeilingName+"="+strconv.FormatInt(ceiling, 10))
 }
 
 // runtimeInputDenyNames reads the project's reserved runtime-input names. A
