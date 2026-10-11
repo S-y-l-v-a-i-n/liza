@@ -5,38 +5,38 @@
     {
       "role": "architect",
       "variant": "architecture-main-pair",
-      "before_bytes": 295514,
-      "after_bytes": 290738,
+      "before_bytes": 296337,
+      "after_bytes": 291561,
       "delta_bytes": -4776,
-      "reference_before_bytes": 281489,
-      "reference_after_bytes": 276713
+      "reference_before_bytes": 282312,
+      "reference_after_bytes": 277536
     },
     {
       "role": "architecture-reviewer",
       "variant": "architecture-main-pair",
-      "before_bytes": 291815,
-      "after_bytes": 287039,
+      "before_bytes": 292189,
+      "after_bytes": 287413,
       "delta_bytes": -4776,
-      "reference_before_bytes": 277903,
-      "reference_after_bytes": 273127
+      "reference_before_bytes": 278277,
+      "reference_after_bytes": 273501
     },
     {
       "role": "architect",
       "variant": "architecture-pair",
-      "before_bytes": 292302,
-      "after_bytes": 287526,
+      "before_bytes": 293125,
+      "after_bytes": 288349,
       "delta_bytes": -4776,
-      "reference_before_bytes": 281489,
-      "reference_after_bytes": 276713
+      "reference_before_bytes": 282312,
+      "reference_after_bytes": 277536
     },
     {
       "role": "architecture-reviewer",
       "variant": "architecture-pair",
-      "before_bytes": 288837,
-      "after_bytes": 284061,
+      "before_bytes": 289211,
+      "after_bytes": 284435,
       "delta_bytes": -4776,
-      "reference_before_bytes": 277903,
-      "reference_after_bytes": 273127
+      "reference_before_bytes": 278277,
+      "reference_after_bytes": 273501
     },
     {
       "role": "code-planner",
@@ -59,8 +59,8 @@
     {
       "role": "code-planner",
       "variant": "code-planning-pair",
-      "before_bytes": 298025,
-      "after_bytes": 293249,
+      "before_bytes": 298579,
+      "after_bytes": 293803,
       "delta_bytes": -4776,
       "reference_before_bytes": 266228,
       "reference_after_bytes": 261452
@@ -68,8 +68,8 @@
     {
       "role": "code-plan-reviewer",
       "variant": "code-planning-pair",
-      "before_bytes": 292341,
-      "after_bytes": 287565,
+      "before_bytes": 292673,
+      "after_bytes": 287897,
       "delta_bytes": -4776,
       "reference_before_bytes": 266245,
       "reference_after_bytes": 261469

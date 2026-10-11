@@ -38,9 +38,17 @@ func TestBlockedTaskChainsPlannerAndReviewerDuties(t *testing.T) {
 	const knownConsumers = "never freeze the incompatible contract with only a gap note"
 	const knownConsumersHold = "hold the affected scope on the corrected contract"
 	const verificationHold = "every consumer of the client's behavior depends on"
-	architectCriticalPath := []string{"earliest artifact that suffices", verificationHold, "split a consumed fixture from a later proof", "weigh a per-scope split"}
+	architectCriticalPath := []string{"earliest artifact that suffices", verificationHold, "split a consumed fixture from a later proof",
+		"weigh an additive seam", "against every expected writer"}
 	const edgeMeaning = "earliest artifact that supplies the input"
 	const masterEdge = "contract or its implementation"
+	// D-96: a shared-file edge is required unless the plan states the edits
+	// commute (whole-definition replacements never do), and every writer joining
+	// an ordered chain re-weighs the seam; both render without direct coding.
+	commuting := []string{"they claim no common key, slot, name or position", "unstated composition keeps the edge", "whole-definition replacements never commute"}
+	const seamReweigh = "re-weighs its seam against the chain's writers"
+	const seamReweighRow = "a chain joiner skips re-weighing its seam"
+	const masterOwner = "Exactly one entry writes each shared file"
 
 	cases := []struct {
 		role     string
@@ -50,19 +58,20 @@ func TestBlockedTaskChainsPlannerAndReviewerDuties(t *testing.T) {
 	}{
 		{"epic-planner", "doer", false, []string{"keep their priority at item level", "expose a missing product policy"}},
 		{"us-writer", "doer", false, []string{"Carry each story's inherited priority", "cannot fail a Must story"}},
-		{"architect", "doer", false, append([]string{"minimum mechanism Must scope", "targeted probe", "never a pre-coding gate without a concrete dependency reason",
-			childFeasibility, "acceptance manifest", "checked before it restricts a child", knownConsumers, knownConsumersHold}, architectCriticalPath...)},
-		{"code-planner", "doer", false, []string{"effective priority", edgeMeaning, "must not inherit its whole barrier",
-			childFeasibility, "acceptance manifest", "only an unfinished provider's delivery is deferred", knownConsumers, knownConsumersHold}},
-		{"architect", "doer", true, append([]string{"group a shared uncertainty", masterEdge}, architectCriticalPath...)},
-		{"code-planner", "doer", true, []string{"group a shared uncertainty", masterEdge}},
+		{"architect", "doer", false, append(append([]string{"minimum mechanism Must scope", "targeted probe", "never a pre-coding gate without a concrete dependency reason",
+			childFeasibility, "acceptance manifest", "checked before it restricts a child", knownConsumers, knownConsumersHold, seamReweigh}, architectCriticalPath...), commuting...)},
+		{"code-planner", "doer", false, append([]string{"effective priority", edgeMeaning, "must not inherit its whole barrier",
+			childFeasibility, "acceptance manifest", "only an unfinished provider's delivery is deferred", knownConsumers, knownConsumersHold, seamReweigh}, commuting...)},
+		{"architect", "doer", true, append(append([]string{"group a shared uncertainty", masterEdge, masterOwner, seamReweigh}, architectCriticalPath...), commuting...)},
+		{"code-planner", "doer", true, append([]string{"group a shared uncertainty", masterEdge, seamReweigh}, commuting...)},
 		{"epic-plan-reviewer", "reviewer", false, append([]string{findingRule}, handoffRows...)},
 		{"us-reviewer", "reviewer", false, []string{findingRule, "inherited priority", "without inventing policy"}},
-		{"architecture-reviewer", "reviewer", false, append([]string{findingRule, "| Minimal Must mechanism |",
+		{"architecture-reviewer", "reviewer", false, append(append([]string{findingRule, "| Minimal Must mechanism |",
 			"circular, missing, or superfluous dependencies", "| Critical path |", verificationHold,
-			"bundled with a later proof", "without weighing a per-scope split"}, handoffRows...)},
-		{"code-plan-reviewer", "reviewer", false, append([]string{findingRule, "| Dependency meaning |", edgeMeaning}, handoffRows...)},
-		{"architecture-reviewer", "reviewer", true, []string{"7. Priority and uncertainty.", masterEdge}},
+			"bundled with a later proof", "without an additive seam weighed against every expected writer", seamReweighRow}, handoffRows...), commuting...)},
+		{"code-plan-reviewer", "reviewer", false, append(append([]string{findingRule, "| Dependency meaning |", edgeMeaning,
+			"an edge's only reason is overlap of edits stated to commute", seamReweighRow}, handoffRows...), commuting...)},
+		{"architecture-reviewer", "reviewer", true, []string{"7. Priority and uncertainty.", masterEdge, masterOwner}},
 		{"code-plan-reviewer", "reviewer", true, []string{"7. Priority and uncertainty.", masterEdge}},
 		{"code-reviewer", "reviewer", false, []string{findingRule, "label the finding a contract defect naming the owning artifact and role"}},
 	}
@@ -98,6 +107,13 @@ func TestBlockedTaskChainsPlannerAndReviewerDuties(t *testing.T) {
 					t.Errorf("missing %q", required)
 				}
 			}
+			// D-96: no role keeps the unconditional same-file edge.
+			for _, stale := range []string{"they MUST have a depends_on", "may touch the same files, add depends_on",
+				"may modify the same files without depends_on", "parallel coders will hit merge conflicts", "per-scope split"} {
+				if strings.Contains(rendered, stale) {
+					t.Errorf("still renders unconditional shared-file rule %q", stale)
+				}
+			}
 			if m := rawDefaultBrand.FindString(rendered); m != "" {
 				t.Errorf("non-default rendering leaks %q", m)
 			}
@@ -107,16 +123,23 @@ func TestBlockedTaskChainsPlannerAndReviewerDuties(t *testing.T) {
 
 // D51: the architecture skill names false dependence as an anti-pattern, not
 // only false independence, and keeps the real-provider verification hold.
+// D-96: shared-file edges yield only to stated commutation (an interface
+// contract is no bypass), and the seam is weighed against every expected writer.
 func TestArchitecturePlanningFalseDependence(t *testing.T) {
 	t.Parallel()
 
 	skill := readContractFixture(t, "../../skills/architecture-planning/SKILL.md")
 	for _, required := range []string{
 		"**False Dependence**", "earliest one that suffices",
-		"every consumer of the client's behavior depends on", "per-scope split",
+		"every consumer of the client's behavior depends on", "additive seam",
+		"including later supplements and corrections", "unless stated to commute",
+		"not a writer edge", "each replace one whole definition still share it",
 	} {
 		if !strings.Contains(skill, required) {
 			t.Errorf("architecture-planning skill missing %q", required)
 		}
+	}
+	if strings.Contains(skill, "`depends_on` or explicit interface contracts") {
+		t.Error("architecture-planning skill still lets an interface contract replace a writer edge")
 	}
 }

@@ -174,9 +174,9 @@ b. and c. apply to the observed symptom path; e. names what the repair leaves op
       hook always runs (e.g. `always_run: true`), and a
       behavior-changing child's tests must match a submission test-file pattern ({{testFilePatterns}}).
       Verify depends_on indices match the dependency order described in the plan.
-   f. Shared-file audit: for each file appearing in more than one task's scope,
-      verify a depends_on chain exists between those tasks. Missing dependency on
-      shared files will cause merge conflicts for parallel coders.
+   f. Shared-file audit: for each file or definition edited by more than one task,
+      verify a depends_on chain exists between those tasks unless the plan states
+      their edits commute (shared-file rule).
    g. Cross-reference consistency: for every cross-reference in the plan ("owned by CPx",
       "depends on CPx", "out of scope for CPx"), search the plan file at the path chosen in step 2
       and confirm the referenced task explicitly states that responsibility,
@@ -295,8 +295,10 @@ hold, never a pre-coding gate without a concrete dependency reason. Make each de
 wait for the earliest artifact that suffices: a frozen contract and contract-derived fixtures
 before a provider implementation, and add a verification task that depends on client and provider
 and that every consumer of the client's behavior depends on;
-split a consumed fixture from a later proof; and weigh a per-scope split before routing
-several scopes through one shared file.
+split a consumed fixture from a later proof; and before routing writers through one shared
+definition, weigh an additive seam (each writer adds its own file, function or registered entry)
+against every expected writer (stories, Provider Ask Inventory) and record that count; per-writer
+files that each replace the whole definition are no split.
 {{template "known-consumers-duty"}}
 1. Work ONLY in the worktree directory. Use git -C {{.Worktree}} for all git commands.
 2. Use the assigned goal carrier and declared direct-reference spans for inherited product behavior.
@@ -367,7 +369,7 @@ EMIT RULES (when both flags are false and the project lacks a pre-commit config)
    c. Every output maps to a Scope with a complete explicit Direct references read set, including needed shared architecture.
    d. Every arch_ref names the arch doc plus that child's exact unique Scope heading; bare paths are refused on new submissions.
    e. Spec compliance: the decomposition covers the full scope of the goal spec.
-   f. Shared-file audit: if two output[] entries may touch the same files, add depends_on. A rule ordering shared-file writers states where a later correction writer goes, or its human ruling.
+   f. Shared-file audit: if two output[] entries may edit one shared file or definition, add depends_on unless the architecture states they commute: {{template "commuting-edits"}}. A rule ordering shared-file writers states where a later correction writer goes, or its human ruling. {{template "seam-reassessment"}}
    g. Child feasibility: scope files and preserve directives leave room for what coding children must commit (tests,
       each acceptance manifest) and for corrections allocated obligations need; a premise about existing source is
       checked before it restricts a child.

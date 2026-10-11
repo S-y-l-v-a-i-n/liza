@@ -2,6 +2,24 @@
 
 Deliberate debt with payback triggers. See CORE.md Rule 3 (DoD) for policy.
 
+## Non-commuting shared-definition writers still code serially
+
+**What:** ADR-0201 lets commuting shared-file writers code in parallel, but
+writers whose edits do not commute (each replaces one whole definition, or
+claims a common key or slot) still wait on every earlier writer. D-96 fix (b)
+would let them code in parallel through an ordering-only dependency kind (merge
+order without a coding wait), forced re-derivation from the latest definition at
+merge, and slot renumbering.
+
+**Why deferred:** a new dependency kind across claim, validation, plan-check,
+reservation and prompts. Its gain is bounded by the re-derivation pass and
+re-review each writer still needs at merge, which is unmeasured, and ADR-0201
+already makes a replace-whole design survive a full-count seam weighing at design
+time and at every join.
+
+**Payback trigger:** a run where an additive seam was weighed against the full
+writer count and rejected, and the non-commuting chain still binds throughput.
+
 ## Agent deletion and reviewer diversity read a lease-less registration as gone
 
 **What:** Two agent-liveness readers still use the lease alone, not
@@ -463,6 +481,13 @@ cancellation before the first heartbeat. Both passed in an isolated race run.
 No expectations, deadlines, await or heartbeat code were changed. These are
 separate timing repairs, deferred to preserve this feature's bounded corrective
 review scope; the existing payback trigger has fired and repair is due.
+
+**Recurrence (D-96 validation, 2026-10-11):** full `make test` failed
+`internal/integration` `TestAwaitVerdict_RejectionFlow` at
+`await_verdict_test.go:168` ("AwaitVerdict caller did not return within 10s",
+18.76s) on a prompt-text-only change set; it passed 3/3 in isolation and in an
+earlier full `go test ./...` run. Same fixed 10s receive deadline after
+`SubmitVerdict`; not repaired here.
 
 **Additional submit boundary (D-51 validation):**
 `TestExecuteAgentLetsLateSubmitPublishPastSupervisorClocks` failed under a full

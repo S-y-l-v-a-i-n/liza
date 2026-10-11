@@ -111,7 +111,7 @@ REVIEW CHECKLIST:
 | Scope smell | done_when spans >2 packages or >4 conditions — verify the task has a single intent; reject with split suggestion if composite |
 | Dependency order | Tasks have circular or missing dependencies |
 | Executable dependency proof | Plan claims sibling child-task ordering without output[].depends_on sibling indexes, claims child ordering inherited across planning-task dependencies when the dependency did not execute the same transition name and output[].task_depends_on does not name existing concrete task IDs, or requires a concrete dependency target that does not exist without marking the planning task BLOCKED |
-| Shared-file dependency | Two tasks modify the same file but lack depends_on between them — parallel coders will hit merge conflicts |
+| Shared-file dependency | Two tasks edit one shared file or definition without depends_on and the plan does not state that they commute ({{template "commuting-edits"}}), or an edge's only reason is overlap of edits stated to commute; or a chain joiner skips re-weighing its seam |
 {{template "corrective-placement-row"}}
 | Spec compliance matrix | Plan has no "## Spec Compliance Matrix" section, or matrix has GAP rows, or matrix omits spec requirements, or matrix task mappings are inaccurate |
 | output[] populated | Task has no output[] entries (planner must call {{binaryName}} set-task-output --json) |
@@ -332,9 +332,9 @@ REVIEW CHECKLIST:
 | validation satisfiable | An output[] validation command can exit 0 without exercising its intended check, or hook/check intent is not declared in durable architecture/task text |
 | validation command shape | A validation[] command is not single-purpose and agent-executable. Forbidden validation command shapes: `cd ... &&`, command substitution/backticks, polling or tail pipelines, and task artifact paths outside the worktree. |
 | Dependency ordering | Output[] entries have circular, missing, or superfluous dependencies — an edge naming no consumed artifact, or an inherited whole-phase barrier |
-| Shared-file dependencies | Two output[] entries may modify the same files without depends_on |
+| Shared-file dependencies | Two output[] entries may edit one shared file or definition without depends_on and the architecture does not state that they commute ({{template "commuting-edits"}}); or a chain joiner skips re-weighing its seam |
 | Writer-order completeness | A rule ordering shared-file writers gives no position for a later correction writer and names no human ruling |
-| Critical path | A client waits on its provider's implementation where the frozen contract and contract-derived fixtures suffice; a contract-first client lacks a verification task that depends on client and provider and that every consumer of the client's behavior depends on; a consumed fixture is bundled with a later proof; or several scopes write one shared file (migration, test file, registry) in series without weighing a per-scope split |
+| Critical path | A client waits on its provider's implementation where the frozen contract and contract-derived fixtures suffice; a contract-first client lacks a verification task that depends on client and provider and that every consumer of the client's behavior depends on; a consumed fixture is bundled with a later proof; or writers extend one shared definition (migration, dispatcher, registry, test file) in series without an additive seam weighed against every expected writer |
 | arch_ref set | Output[] entries missing arch_ref pointing to the architecture document |
 | Spec alignment | Architecture decisions contradict or ignore spec requirements |
 | Provider freeze | Early epic Provider Ask Inventory coverage is not reconciled against assigned epics and source obligations; declared asks are unavailable, or an ask lacks a provider answer or concrete deferral with allocated investigation/correction and a legal affected-scope wait |
@@ -466,6 +466,14 @@ rejection time, and `timeout_seconds` is reported for visibility only.
 
 {{- define "corrective-placement-row" -}}
 | Corrective placement | A correction writer in an ordered shared-file chain lacks Placement, omits a started or merged predecessor or a named successor, breaks a fixed or merged slot or the rule, or is not the earliest legal slot |
+{{- end -}}
+
+{{- define "commuting-edits" -}}
+each keeps the other's behavior, they claim no common key, slot, name or position, and neither needs the other's initialization or state; unstated composition keeps the edge; whole-definition replacements never commute
+{{- end -}}
+
+{{- define "seam-reassessment" -}}
+A writer joining an ordered chain on a non-commuting definition re-weighs its seam against the chain's writers (merged, started, unstarted, itself); once outgrown, it raises an additive-seam correction to the owner (allocate, or mark-blocked requesting it) under the rule's correction case, or records why the chain still wins.
 {{- end -}}
 
 {{- define "finding-boundary" -}}
