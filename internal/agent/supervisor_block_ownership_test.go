@@ -76,9 +76,9 @@ func TestSupervisorBlockReleasesAllTaskOwners(t *testing.T) {
 				t.Error("blocking did not clear both task ownership slots")
 			}
 			original := before.FindTask(taskID)
-			// Supervisor blocking already deletes the worktree; commit attribution remains.
-			if task.Worktree != nil || !reflect.DeepEqual(task.BaseCommit, original.BaseCommit) || !reflect.DeepEqual(task.ReviewCommit, original.ReviewCommit) {
-				t.Error("blocking changed established worktree cleanup or commit attribution")
+			// Supervisor blocking keeps the worktree for unblock/repair (ADR-0203) and commit attribution.
+			if !reflect.DeepEqual(task.Worktree, original.Worktree) || !reflect.DeepEqual(task.BaseCommit, original.BaseCommit) || !reflect.DeepEqual(task.ReviewCommit, original.ReviewCommit) {
+				t.Error("blocking changed the preserved worktree or commit attribution")
 			}
 			if err := statevalidate.ValidateState(after, root, true, nil); err != nil {
 				t.Errorf("blocked state is invalid before any subsequent supervisor poll: %v", err)

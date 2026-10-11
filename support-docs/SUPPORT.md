@@ -266,7 +266,7 @@ Cross-pair states (not pair-specific):
 
 To find the actual state names for a role-pair, check `role-pairs.<name>.states` in `§BRAND_PROJECT_DIRNAME§/pipeline.yaml`. Some pairs define extra states (e.g. `partially-approved`, `reviewing-2` for quorum review, or `clean` for no-issues-found).
 
-Supervisors automatically block a still-owned executing task when the child provider process makes no observable progress for `config.agent_progress_timeout` seconds. Observable progress is task state movement, worktree HEAD/status movement including untracked files, or provider stdout/stderr output. This prevents a stale `WORKING` agent from holding a task indefinitely when its provider process stalls. The watchdog cancels the provider and waits for it to exit before cleaning the worktree.
+Supervisors automatically block a still-owned executing task when the child provider process makes no observable progress for `config.agent_progress_timeout` seconds. Observable progress is task state movement, worktree HEAD/status movement including untracked files, or provider stdout/stderr output. This prevents a stale `WORKING` agent from holding a task indefinitely when its provider process stalls. The watchdog cancels the provider and waits for it to exit. A session the provider ended on quota or an outage is handled as that provider failure instead. Otherwise the doer's uncommitted work is saved as a WIP commit before the block. No supervisor block deletes the worktree or task branch: `unblock-task` resumes from them, and `wt-delete` removes them when the work is not wanted.
 
 ### Reading an AWAITING HUMAN alert
 

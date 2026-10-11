@@ -315,55 +315,6 @@ func promptFailureBlockTarget(strategy RoleStrategy, claimedTaskID, taskID strin
 	return ""
 }
 
-// blockTaskFromSupervisor marks a task as BLOCKED and releases the assignment.
-func blockTaskFromSupervisor(bb *db.Blackboard, projectRoot, taskID string, authority models.AgentAuthority, reason string) error {
-	agentID := authority.ID
-	pipelineTransitions, ptErr := ops.LoadPipelineTransitions(projectRoot)
-	if ptErr != nil {
-		return fmt.Errorf("load pipeline transitions for supervisor block: %w", ptErr)
-	}
-
-	if err := ops.ModifyWithAgentAuthority(bb, authority, func(s *models.State) error {
-		task := s.FindTask(taskID)
-		if task == nil {
-			return nil
-		}
-		if err := task.TransitionWith(models.TaskStatusBlocked, pipelineTransitions); err != nil {
-			return err
-		}
-		now := time.Now().UTC()
-		task.BlockedReason = &reason
-		task.BlockedQuestions = []string{
-			"Is the task spec unclear or incomplete?",
-			"Is there an environment or tooling issue preventing progress?",
-		}
-		task.AssignedTo = nil
-		task.LeaseExpires = nil
-		models.AdvanceLifecycle(task)
-		task.ReviewingBy = nil
-		task.ReviewLeaseExpires = nil
-		ops.ReleaseAgentsForTask(s, taskID)
-		task.History = append(task.History, models.TaskHistoryEntry{
-			Time:   now,
-			Event:  models.TaskEventBlocked,
-			Agent:  &agentID,
-			Reason: &reason,
-		})
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	result, err := ops.DeleteWorktree(projectRoot, taskID)
-	if err != nil {
-		return fmt.Errorf("clean blocked task worktree: %w", err)
-	}
-	for _, warning := range result.Warnings {
-		GetLogger().Warn("Blocked task worktree cleanup warning", "warning", warning, "task_id", taskID)
-	}
-	return nil
-}
-
 // --- Crash restart tracker ---
 
 type crashRestartState struct {
@@ -1042,8 +993,10 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 
 		commitQuotaTerminationWIP(supervisorCtx, config, exitCode, effectiveTask, currentOutput)
 		// Reset runtime status after CLI exits, but preserve explicit command-driven
-		// states such as WAITING and HANDOFF.
-		if err := resetAgentAfterExit(bb, config.Authority, config.ProjectRoot); err != nil {
+		// states such as WAITING and HANDOFF. The loop blocks below act after
+		// this release, so they may only block the continuation it left.
+		released, err := releaseAgentAfterExit(bb, config.Authority, config.ProjectRoot)
+		if err != nil {
 			GetLogger().Warn("Failed to reset agent status after exit", "error", err, "agent_id", config.AgentID)
 		}
 
@@ -1058,7 +1011,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 				runtimeFailureTracker.reset(effectiveTask)
 			}
 
-			if !preserveClaimForBackgroundJob(bb, config, effectiveTask, stateBefore.Config, currentOutput, backgroundTaskTracker, spinTracker) {
+			if !preserveClaimForBackgroundJob(bb, config, effectiveTask, stateBefore.Config, currentOutput, released, backgroundTaskTracker, spinTracker) {
 				GetLogger().Info("Agent completed, checking for more work")
 				if err := strategy.PostExecution(bb, config, taskID, claimedTaskID, stateBefore); err != nil {
 					GetLogger().Warn("Post-execution error", "error", err)
@@ -1129,7 +1082,7 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 					if alertErr := LogAlert(config.ProjectRoot, "🚨", "CRASH RESTART LOOP", reason); alertErr != nil {
 						GetLogger().Warn("Failed to write crash alert", "error", alertErr)
 					}
-					if blockErr := blockTaskFromSupervisor(bb, config.ProjectRoot, effectiveTask, config.Authority, reason); blockErr != nil {
+					if blockErr := blockReleasedTaskFromSupervisor(bb, config.ProjectRoot, effectiveTask, config.Authority, released, reason); blockErr != nil {
 						GetLogger().Warn("Failed to block task from supervisor", "error", blockErr, "task_id", effectiveTask)
 					}
 					crashTracker.reset(effectiveTask)

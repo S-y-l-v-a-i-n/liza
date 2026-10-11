@@ -344,10 +344,12 @@ func TestExecuteAgentBlocksTaskAfterProgressTimeout(t *testing.T) {
 	}
 	bb := testhelpers.WriteInitialState(t, statePath, state)
 
+	worktreeDir := filepath.Join(tmpDir, ".worktrees", taskID)
 	mock := &MockLLMAgent{
 		OnExecute: func(ctx context.Context, cliName string, agentID string, prompt string, projectRoot string, additionalDirs []string) error {
+			leaveDoerWork(t, worktreeDir)
 			<-ctx.Done()
-			if _, statErr := os.Stat(filepath.Join(tmpDir, ".worktrees", taskID)); statErr != nil {
+			if _, statErr := os.Stat(worktreeDir); statErr != nil {
 				t.Fatalf("worktree should still exist when provider observes cancellation, stat err=%v", statErr)
 			}
 			return ctx.Err()
@@ -394,19 +396,10 @@ func TestExecuteAgentBlocksTaskAfterProgressTimeout(t *testing.T) {
 	if afterTask.AssignedTo != nil || afterTask.LeaseExpires != nil {
 		t.Fatalf("blocked task should clear assignment and lease, assigned=%v lease=%v", afterTask.AssignedTo, afterTask.LeaseExpires)
 	}
-	if afterTask.Worktree != nil {
-		t.Fatalf("blocked task worktree = %v, want nil", *afterTask.Worktree)
-	}
-	if _, err := os.Stat(filepath.Join(tmpDir, ".worktrees", taskID)); !os.IsNotExist(err) {
-		t.Fatalf("worktree directory should be removed, stat err=%v", err)
-	}
-	branchExists, err := gw.BranchExists("task/" + taskID)
-	if err != nil {
-		t.Fatalf("BranchExists error: %v", err)
-	}
-	if branchExists {
-		t.Fatalf("task branch should be removed")
-	}
+	// The block keeps the worktree and branch, with the session's work saved
+	// as one WIP commit (D-101, ADR-0203).
+	assertWorktreeAndBranchKept(t, tmpDir, afterTask)
+	assertDoerWorkCommitted(t, worktreeDir, baseCommit)
 }
 
 func TestExecuteAgentOutputProgressPreventsProgressTimeout(t *testing.T) {
@@ -3084,7 +3077,10 @@ func TestDetectAbandonedBackgroundTask_DeliberateStopDoesNotMaskARealOne(t *test
 	}
 }
 
-func TestAbandonedBackgroundTaskRetry_PreservesClaimThenBlocksOverThreshold(t *testing.T) {
+// Production order: each session is (re)claimed, its exit releases the claim,
+// and only then is the abandoned job judged, so the block acts on the released
+// continuation.
+func TestAbandonedBackgroundTaskRetry_BlocksReleasedTaskOverThreshold(t *testing.T) {
 	projectRoot := t.TempDir()
 	testhelpers.SetupTestGitRepo(t, projectRoot)
 	statePath, _ := testhelpers.SetupLizaDir(t, projectRoot)
@@ -3113,27 +3109,42 @@ func TestAbandonedBackgroundTaskRetry_PreservesClaimThenBlocksOverThreshold(t *t
 	spinTracker := newSpinningTracker()
 	backgroundTracker := newRuntimeFailureTracker()
 	abandoned := abandonedBackgroundTask{TaskID: "bnajie1ul", Summary: "Run full race test suite"}
+	claimThenExit := func(attempt int) releasedTaskClaim {
+		t.Helper()
+		if err := bb.Modify(func(s *models.State) error {
+			task := s.FindTask(taskID)
+			task.Status, task.AssignedTo = models.TaskStatusImplementing, &agentID
+			agent := s.Agents[agentID]
+			agent.Status, agent.CurrentTask = models.AgentStatusWorking, &taskID
+			s.Agents[agentID] = agent
+			return nil
+		}); err != nil {
+			t.Fatalf("attempt %d claim: %v", attempt, err)
+		}
+		released, err := releaseAgentAfterExit(bb, config.Authority, projectRoot)
+		if err != nil {
+			t.Fatalf("attempt %d releaseAgentAfterExit: %v", attempt, err)
+		}
+		if released.TaskID != taskID || released.TransitionID == "" {
+			t.Fatalf("attempt %d released = %+v, want the task's released claim", attempt, released)
+		}
+		return released
+	}
 
-	// Below the threshold the claim is preserved: the task keeps its assignment
-	// so the next session resumes it rather than re-claiming a dirty worktree.
 	for i := 1; i <= state.Config.SpinningRestartThreshold; i++ {
-		if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, backgroundTracker, spinTracker); blocked {
+		if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, claimThenExit(i), backgroundTracker, spinTracker); blocked {
 			t.Fatalf("abandoned background attempt %d blocked, want below threshold", i)
 		}
 		current, err := bb.Read()
 		if err != nil {
 			t.Fatalf("bb.Read: %v", err)
 		}
-		currentTask := current.FindTask(taskID)
-		if currentTask.Status != models.TaskStatusImplementing {
-			t.Fatalf("attempt %d status = %s, want the task still IMPLEMENTING_CODE", i, currentTask.Status)
-		}
-		if currentTask.AssignedTo == nil || *currentTask.AssignedTo != agentID {
-			t.Fatalf("attempt %d released the claim, want it preserved", i)
+		if status := current.FindTask(taskID).Status; status == models.TaskStatusBlocked {
+			t.Fatalf("attempt %d status = %s, want not blocked below the threshold", i, status)
 		}
 	}
 
-	if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, backgroundTracker, spinTracker); !blocked {
+	if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, claimThenExit(state.Config.SpinningRestartThreshold+1), backgroundTracker, spinTracker); !blocked {
 		t.Fatal("abandoned background over threshold did not block task")
 	}
 
@@ -3184,7 +3195,7 @@ func TestAbandonedBackgroundTaskRetry_DoesNotConsumeSpinBudget(t *testing.T) {
 	if count := spinTracker.Track(taskID, signature); count != 1 {
 		t.Fatalf("spin count = %d, want 1", count)
 	}
-	handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, backgroundTracker, spinTracker)
+	handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, releasedTaskClaim{}, backgroundTracker, spinTracker)
 	if count := spinTracker.Track(taskID, signature); count != 1 {
 		t.Fatalf("spin count after preservation = %d, want 1: preservation is not a no-progress spin", count)
 	}
@@ -3218,7 +3229,7 @@ func TestAbandonedBackgroundTaskRetry_AlertsOperatorOnFirstAbandonment(t *testin
 	}
 	abandoned := abandonedBackgroundTask{TaskID: "bgate123", Summary: "Submit for review with live gate"}
 
-	if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, newRuntimeFailureTracker(), newSpinningTracker()); blocked {
+	if blocked := handleAbandonedBackgroundTaskRetry(bb, config, taskID, state.Config, abandoned, releasedTaskClaim{}, newRuntimeFailureTracker(), newSpinningTracker()); blocked {
 		t.Fatal("first abandonment blocked the task, want the claim preserved")
 	}
 

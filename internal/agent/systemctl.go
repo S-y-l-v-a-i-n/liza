@@ -433,6 +433,16 @@ func executeAgent(ctx context.Context, config SupervisorConfig, prompt string, a
 		return 0, result.Output, errReviewOwnershipLost
 	}
 	if watchdogResult.Blocked {
+		// A session the provider ended (quota, outage) looks stalled when a
+		// background job keeps the CLI alive. That is a provider failure, not
+		// a stalled task: the non-zero exit sends it down the supervisor's
+		// provider-failure path with the claim still held (D-101).
+		if DetectProviderUnavailable(result.Output, config.CLIName) != nil || DetectQuotaExhaustion(result.Output, config.CLIName) != nil {
+			logger.Warn("Execution progress timeout after the provider ended the session; handling it as a provider failure",
+				"agent_id", config.AgentID,
+				"task_id", taskID)
+			return 1, result.Output, nil
+		}
 		if blockErr := blockTaskFromSupervisor(db.For(config.StatePath), config.ProjectRoot, taskID, config.Authority, watchdogResult.Reason); blockErr != nil {
 			logger.Warn("Failed to block task from execution watchdog", "error", blockErr, "task_id", taskID)
 		}

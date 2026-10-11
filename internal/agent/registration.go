@@ -415,13 +415,41 @@ func resetAgentToIdle(bb *db.Blackboard, authority models.AgentAuthority) error 
 // resetAgentAfterExit clears transient runtime states after CLI exit while preserving
 // explicit command-driven states that are meaningful between loops.
 func resetAgentAfterExit(bb *db.Blackboard, authority models.AgentAuthority, projectRoot string) error {
+	_, err := releaseAgentAfterExit(bb, authority, projectRoot)
+	return err
+}
+
+// releasedTaskClaim names the task whose claim an exit released and that
+// task's lifecycle token right after the release. A block decided after the
+// release may act on exactly that unowned continuation and nothing else.
+type releasedTaskClaim struct {
+	TaskID       string
+	TransitionID string
+}
+
+// releaseAgentAfterExit is resetAgentAfterExit reporting the claim it
+// released, if any.
+func releaseAgentAfterExit(bb *db.Blackboard, authority models.AgentAuthority, projectRoot string) (releasedTaskClaim, error) {
 	now := time.Now().UTC()
 	agentID := authority.ID
 
 	// Load pipeline config outside the lock to avoid disk I/O under bb.Modify
 	pipelineTransitions, resolver := loadPipelineForRelease(projectRoot)
 
-	return ops.ModifyWithAgentAuthority(bb, authority, func(state *models.State) error {
+	var released releasedTaskClaim
+	err := ops.ModifyWithAgentAuthority(bb, authority, func(state *models.State) error {
+		released = releasedTaskClaim{}
+		release := func(task *models.Task, role string) error {
+			before := len(task.History)
+			if err := releaseTaskClaim(state, task, role, agentID, pipelineTransitions, resolver, now); err != nil {
+				return err
+			}
+			if len(task.History) > before {
+				released = releasedTaskClaim{TaskID: task.ID, TransitionID: models.TaskTransitionID(task)}
+			}
+			return nil
+		}
+
 		agent, exists := state.Agents[agentID]
 		if !exists {
 			return &errors.NotFoundError{Entity: "agent", ID: agentID}
@@ -435,7 +463,7 @@ func resetAgentAfterExit(bb *db.Blackboard, authority models.AgentAuthority, pro
 			if agent.CurrentTask != nil {
 				task := state.FindTask(*agent.CurrentTask)
 				if task != nil && task.ReviewingBy != nil && *task.ReviewingBy == agentID {
-					return releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now)
+					return release(task, agent.Role)
 				}
 			}
 		case models.AgentStatusHandoff:
@@ -450,7 +478,7 @@ func resetAgentAfterExit(bb *db.Blackboard, authority models.AgentAuthority, pro
 		// Release any held task claim before clearing CurrentTask
 		if agent.CurrentTask != nil {
 			if task := state.FindTask(*agent.CurrentTask); task != nil {
-				if err := releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now); err != nil {
+				if err := release(task, agent.Role); err != nil {
 					return err
 				}
 			}
@@ -462,6 +490,10 @@ func resetAgentAfterExit(bb *db.Blackboard, authority models.AgentAuthority, pro
 		state.Agents[agentID] = agent
 		return nil
 	})
+	if err != nil {
+		return releasedTaskClaim{}, err
+	}
+	return released, nil
 }
 
 // supervisorCleanupBlackboard lets exit bookkeeping finish after cancellation,

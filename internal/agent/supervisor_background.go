@@ -114,13 +114,15 @@ func deliberatelyStoppedTaskIDs(output string) map[string]struct{} {
 // and blocks the task once that has repeated past the spin threshold.
 //
 // Returns true when the task was blocked, matching
-// handleObservedRuntimeFailureRetry.
+// handleObservedRuntimeFailureRetry. The session's exit has already released
+// the claim, so the block may act only on released.
 func handleAbandonedBackgroundTaskRetry(
 	bb *db.Blackboard,
 	config SupervisorConfig,
 	taskID string,
 	runtimeConfig models.Config,
 	abandoned abandonedBackgroundTask,
+	released releasedTaskClaim,
 	backgroundTracker *runtimeFailureTracker,
 	spinTracker *spinningTracker,
 ) bool {
@@ -167,7 +169,7 @@ func handleAbandonedBackgroundTaskRetry(
 	if alertErr := LogAlert(config.ProjectRoot, "🚨", "ABANDONED BACKGROUND JOB LOOP", reason); alertErr != nil {
 		GetLogger().Warn("Failed to write abandoned background job alert", "error", alertErr)
 	}
-	if err := blockTaskFromSupervisor(bb, config.ProjectRoot, taskID, config.Authority, reason); err != nil {
+	if err := blockReleasedTaskFromSupervisor(bb, config.ProjectRoot, taskID, config.Authority, released, reason); err != nil {
 		GetLogger().Warn("Failed to block task from supervisor", "error", err, "task_id", taskID)
 	}
 	backgroundTracker.reset(taskID)
@@ -188,6 +190,7 @@ func preserveClaimForBackgroundJob(
 	taskID string,
 	runtimeConfig models.Config,
 	output string,
+	released releasedTaskClaim,
 	backgroundTracker *runtimeFailureTracker,
 	spinTracker *spinningTracker,
 ) bool {
@@ -199,6 +202,6 @@ func preserveClaimForBackgroundJob(
 		backgroundTracker.reset(taskID)
 		return false
 	}
-	handleAbandonedBackgroundTaskRetry(bb, config, taskID, runtimeConfig, *abandoned, backgroundTracker, spinTracker)
+	handleAbandonedBackgroundTaskRetry(bb, config, taskID, runtimeConfig, *abandoned, released, backgroundTracker, spinTracker)
 	return true
 }

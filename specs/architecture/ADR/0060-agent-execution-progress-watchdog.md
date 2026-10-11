@@ -31,7 +31,7 @@ When an assigned executing task becomes stale:
 1. The supervisor cancels the provider process.
 2. It waits for the process to return.
 3. If the task is still owned by the same agent, it transitions the task to `BLOCKED`.
-4. It runs blocked-task worktree cleanup so worktree/branch invariants are preserved.
+4. It runs blocked-task worktree cleanup so worktree/branch invariants are preserved. *Amended by [ADR-0203](0203-supervisor-blocks-preserve-doer-work.md): the block keeps the worktree and branch and first saves the doer's work.*
 
 Status output also includes process status source/detail fields to make stale assignment diagnostics less ambiguous.
 
