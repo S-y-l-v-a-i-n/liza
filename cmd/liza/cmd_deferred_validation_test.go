@@ -2,12 +2,15 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/liza-mas/liza/internal/brand"
 	"github.com/liza-mas/liza/internal/db"
+	"github.com/liza-mas/liza/internal/jsonout"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/testhelpers"
 )
@@ -72,6 +75,14 @@ func TestDeferredValidationCLIRuleAndRunJSON(t *testing.T) {
 	t.Setenv(brand.EnvName("AGENT_ID"), "coder-1")
 	resetRootCmdForTest(t)
 	stdout, err := executeRootCommandCapture(t, root, "deferred-validation", "run", "--json")
+	if runtime.GOOS == "windows" {
+		// ADR-0204: the runner refuses on Windows before reading the ledger.
+		if !errors.Is(err, jsonout.ErrAlreadyWritten) {
+			t.Fatalf("run on windows = %v, want the refusal written as JSON", err)
+		}
+		assertJSONError(t, stdout, "validation", "not supported on windows")
+		return
+	}
 	if err != nil {
 		t.Fatalf("run failed: %v", err)
 	}

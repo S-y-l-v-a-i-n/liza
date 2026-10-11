@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,13 @@ func TestMergeWorktreeRecordsDeferralsAndStartsDueBatch(t *testing.T) {
 	want := models.DeferredValidationCommand{Command: "make long", CommandSHA256: heavySHA, TimeoutSeconds: 600, Authority: models.AcceptanceDeferralContract}
 	if deferral.TaskID != "merge-deferred" || deferral.MergeCommit != *merged.MergeCommit || len(deferral.Commands) != 1 || deferral.Commands[0] != want {
 		t.Fatalf("deferral = %+v, want the canonical command at merge %s", deferral, *merged.MergeCommit)
+	}
+	if runtime.GOOS == "windows" {
+		// ADR-0204: triggers start nothing where the runner would refuse.
+		if len(spawned) != 0 {
+			t.Fatalf("batch starts on windows = %v, want none", spawned)
+		}
+		return
 	}
 	if len(spawned) != 1 || spawned[0] != root {
 		t.Fatalf("batch starts = %v, want one for %s", spawned, root)
