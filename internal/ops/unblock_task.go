@@ -43,6 +43,8 @@ type UnblockTaskOptions struct {
 	NewIteration bool
 	// Only mechanical contention recovery supplies this captured episode.
 	stateLockHold *models.StateLockHold
+	// Only UnblockTaskAsOperator sets this; it waives the orchestrator-ID check.
+	operator bool
 }
 
 // UnblockTaskRebaseResult contains the outcome of a successful unblock rebase.
@@ -116,6 +118,13 @@ func UnblockTaskWithAuthority(projectRoot, taskID, reason string, authority mode
 	return unblockTaskWithOptionalAuthority(projectRoot, taskID, reason, authority.ID, opts, &authority)
 }
 
+// UnblockTaskAsOperator restores a BLOCKED task for an operator, who holds no
+// agent registration. changedBy is the audit actor; every other gate applies.
+func UnblockTaskAsOperator(projectRoot, taskID, reason, changedBy string, opts UnblockTaskOptions) (*UnblockTaskResult, error) {
+	opts.operator = true
+	return unblockTaskWithOptionalAuthority(projectRoot, taskID, reason, changedBy, opts, nil)
+}
+
 func unblockTaskWithOptionalAuthority(projectRoot, taskID, reason, agentID string, opts UnblockTaskOptions, authority *models.AgentAuthority) (result *UnblockTaskResult, retErr error) {
 	invocation := NewLifecycleInvocation(projectRoot)
 	effects := false
@@ -153,7 +162,7 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 	if agentID == "" {
 		return nil, &PreconditionError{Reason: "agent ID is required"}
 	}
-	if err := identity.ValidateRole(agentID, roles.Orchestrator); err != nil {
+	if err := identity.ValidateRole(agentID, roles.Orchestrator); err != nil && !opts.operator {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("only orchestrator agents can unblock tasks: %v", err)}
 	}
 

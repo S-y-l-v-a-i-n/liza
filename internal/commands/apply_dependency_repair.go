@@ -21,6 +21,12 @@ func ApplyDependencyRepairWithAuthorityCommand(projectRoot, sourceTaskID, reason
 	return ApplyDependencyRepairWithAuthorityAndOptionsCommand(projectRoot, sourceTaskID, reason, authority, ops.LifecycleRequestOptions{})
 }
 
+// ApplyDependencyRepairWithOptionsCommand applies a repair for an operator; agentID is the audit actor.
+func ApplyDependencyRepairWithOptionsCommand(projectRoot, sourceTaskID, reason, agentID string, request ops.LifecycleRequestOptions) error {
+	result, err := ops.ApplyDependencyRepairWithOptions(projectRoot, sourceTaskID, reason, agentID, request)
+	return printApplyDependencyRepairResult(result, err)
+}
+
 func ApplyDependencyRepairWithAuthorityAndOptionsCommand(projectRoot, sourceTaskID, reason string, authority models.AgentAuthority, request ops.LifecycleRequestOptions) error {
 	result, err := ops.ApplyDependencyRepairWithAuthorityAndOptions(projectRoot, sourceTaskID, reason, authority, request)
 	return printApplyDependencyRepairResult(result, err)

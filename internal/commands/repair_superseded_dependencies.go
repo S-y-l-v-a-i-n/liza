@@ -21,6 +21,12 @@ func RepairSupersededDependenciesWithAuthorityCommand(projectRoot, taskID, reaso
 	return RepairSupersededDependenciesWithAuthorityAndOptionsCommand(projectRoot, taskID, reason, authority, ops.LifecycleRequestOptions{})
 }
 
+// RepairSupersededDependenciesWithOptionsCommand repairs dependencies for an operator; agentID is the audit actor.
+func RepairSupersededDependenciesWithOptionsCommand(projectRoot, taskID, reason, agentID string, request ops.LifecycleRequestOptions) error {
+	result, err := ops.RepairSupersededDependenciesWithOptions(projectRoot, taskID, reason, agentID, request)
+	return printRepairSupersededDependenciesResult(result, err)
+}
+
 func RepairSupersededDependenciesWithAuthorityAndOptionsCommand(projectRoot, taskID, reason string, authority models.AgentAuthority, request ops.LifecycleRequestOptions) error {
 	result, err := ops.RepairSupersededDependenciesWithAuthorityAndOptions(projectRoot, taskID, reason, authority, request)
 	return printRepairSupersededDependenciesResult(result, err)

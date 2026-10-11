@@ -18,6 +18,12 @@ func UnblockTaskWithOptionsCommand(projectRoot, taskID, reason, agentID string, 
 	return printUnblockTaskResult(result, err)
 }
 
+// UnblockTaskAsOperatorCommand unblocks a task for an operator; changedBy is the audit actor.
+func UnblockTaskAsOperatorCommand(projectRoot, taskID, reason, changedBy string, opts ops.UnblockTaskOptions) error {
+	result, err := ops.UnblockTaskAsOperator(projectRoot, taskID, reason, changedBy, opts)
+	return printUnblockTaskResult(result, err)
+}
+
 // UnblockTaskWithAuthorityCommand unblocks a task using generation-fenced authority.
 func UnblockTaskWithAuthorityCommand(projectRoot, taskID, reason string, authority models.AgentAuthority, opts ops.UnblockTaskOptions) error {
 	result, err := ops.UnblockTaskWithAuthority(projectRoot, taskID, reason, authority, opts)

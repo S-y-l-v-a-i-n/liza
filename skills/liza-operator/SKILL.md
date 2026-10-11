@@ -45,6 +45,8 @@ version-specific guidance "(as of <build/date>; verify)".
 6. **Generation fencing is a credential boundary** — never print, paste, log, or persist agent-generation
    values. Run fenced mutations through the registered agent or a prepared launcher. If the operator's
    sandbox lacks the fence, route the repair to the orchestrator or give the human an exact host command.
+   Unfenced for you, run with no agent identity: `cancel-task`, `unblock-task`, `retarget-dependency`,
+   `repair-superseded-dependencies`, `apply-dependency-repair`, `reconcile-merged`.
 
 Conflict between "keep moving" and an operating constraint → the constraint wins; escalate.
 

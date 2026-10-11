@@ -119,6 +119,30 @@ Process evidence stays diagnostic only. Rejected alternatives:
 Cost: a dead agent that a recovery path released stays occupied until its
 last heartbeat leaves the window, at most 180 s with the default interval.
 
+## 2026-10-11 Amendment: Operator Path for Orchestrator Recovery Commands
+
+`cancel-task`, `unblock-task`, `retarget-dependency`,
+`repair-superseded-dependencies`, `apply-dependency-repair` and
+`reconcile-merged` required the orchestrator's current generation. An operator
+holds no registration, so it relayed each approved repair through an
+orchestrator wake, and nothing could run one while no orchestrator was
+registered or while it was the stuck party (e.g. a block only a human could
+clear, D-108).
+
+A caller with no agent identity (no agent-ID environment, no `--agent-id`) now
+takes the operator path, as `amend-plan` already did: no generation, no role
+permission, `--changed-by` (default `human`) as audit actor, and every
+operation-level check unchanged. Callers with an identity keep the fenced
+orchestrator path. The fence guards against stale registrations, which the
+operator cannot be.
+
+Accepted risk (user decision): operator authority is only the absence of an
+identity, so an agent that strips its own environment gains it. That exposes
+destructive cancellation, and dependency rewiring a blocked doer could use to
+release itself before its prerequisite merges; state validation catches
+illegal graphs, not a dishonest legal one. A real operator credential would close
+it. `reconcile-verdict` stays orchestrator-only (INVARIANTS §6).
+
 ## Related Decisions
 
 Extends [ADR-0062](0062-ghost-agent-claim-prevention-and-ownership-reconciliation.md)

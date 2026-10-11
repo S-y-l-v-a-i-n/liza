@@ -355,7 +355,7 @@ var retargetDependencyCmd = &cobra.Command{
 	Short: "Retarget one non-terminal task dependency edge",
 	Long: fmt.Sprintf(`Retarget one non-terminal task's direct depends_on edge.
 
-This is an orchestrator-only metadata repair operation for cases where one task
+This is a metadata repair operation for cases where one task
 has the wrong scheduler dependency but neither the dependent task nor the old
 dependency should be superseded. It replaces exactly one old dependency with one
 or more comma-separated new dependencies, canonicalizes the resulting dependency
@@ -389,6 +389,23 @@ Examples:
 		oldDependency := args[1]
 		newDependencies := strings.Split(args[2], ",")
 		reason, _ := cmd.Flags().GetString("reason")
+
+		if operatorInvocation(cmd) {
+			projectRoot, err := requireProjectRoot()
+			if err != nil {
+				return err
+			}
+			actor := resolveChangedBy(cmd)
+			invocation.calledOps = true
+			if isJSON(cmd) {
+				result, err := ops.RetargetDependencyWithOptions(projectRoot, taskID, oldDependency, newDependencies, reason, actor, requestOpts)
+				if verbose, _ := cmd.Flags().GetBool("verbose"); verbose {
+					writeRetargetDependencyVerboseDiagnostic(os.Stderr, err)
+				}
+				return jsonout.WriteResult(os.Stdout, result, resultWarnings(result), err)
+			}
+			return commands.RetargetDependencyWithOptionsCommand(projectRoot, taskID, oldDependency, newDependencies, reason, actor, requestOpts)
+		}
 
 		authority, err := resolveOrchestratorAuthority(cmd)
 		if err != nil {
@@ -537,7 +554,7 @@ var applyDependencyRepairCmd = &cobra.Command{
 	Short: "Apply one stored dependency repair atomically",
 	Long: fmt.Sprintf(`Apply the declarative dependency repair stored on one blocked task.
 
-This orchestrator-only operation verifies every expected dependency list, computes
+This operation verifies every expected dependency list, computes
 every canonical desired list, validates the complete candidate graph, and commits
 the batch with audit history in one state transaction. The source task remains
 blocked so repair validation and unblocking stay explicit.
@@ -566,6 +583,20 @@ Example:
 
 		sourceTaskID := args[0]
 		reason, _ := cmd.Flags().GetString("reason")
+
+		if operatorInvocation(cmd) {
+			projectRoot, err := requireProjectRoot()
+			if err != nil {
+				return err
+			}
+			actor := resolveChangedBy(cmd)
+			invocation.calledOps = true
+			if isJSON(cmd) {
+				result, err := ops.ApplyDependencyRepairWithOptions(projectRoot, sourceTaskID, reason, actor, requestOpts)
+				return jsonout.WriteResult(os.Stdout, result, resultWarnings(result), err)
+			}
+			return commands.ApplyDependencyRepairWithOptionsCommand(projectRoot, sourceTaskID, reason, actor, requestOpts)
+		}
 
 		authority, err := resolveOrchestratorAuthority(cmd)
 		if err != nil {
@@ -599,7 +630,7 @@ var repairSupersededDependenciesCmd = &cobra.Command{
 	Short: "Repair illegal dependencies on one superseded task",
 	Long: fmt.Sprintf(`Remove every illegal downstream dependency from one superseded task.
 
-This orchestrator-only repair preserves legal dependencies and all terminal task
+This repair preserves legal dependencies and all terminal task
 metadata, validates the full candidate state, and records the reason and caller in
 task history and the activity log.
 
@@ -627,6 +658,20 @@ Example:
 
 		taskID := args[0]
 		reason, _ := cmd.Flags().GetString("reason")
+
+		if operatorInvocation(cmd) {
+			projectRoot, err := requireProjectRoot()
+			if err != nil {
+				return err
+			}
+			actor := resolveChangedBy(cmd)
+			invocation.calledOps = true
+			if isJSON(cmd) {
+				result, err := ops.RepairSupersededDependenciesWithOptions(projectRoot, taskID, reason, actor, requestOpts)
+				return jsonout.WriteResult(os.Stdout, result, resultWarnings(result), err)
+			}
+			return commands.RepairSupersededDependenciesWithOptionsCommand(projectRoot, taskID, reason, actor, requestOpts)
+		}
 
 		authority, err := resolveOrchestratorAuthority(cmd)
 		if err != nil {
@@ -798,6 +843,20 @@ var unblockTaskCmd = &cobra.Command{
 			NewIteration: newIteration,
 		}
 
+		if operatorInvocation(cmd) {
+			projectRoot, err := requireProjectRoot()
+			if err != nil {
+				return err
+			}
+			actor := resolveChangedBy(cmd)
+			invocation.calledOps = true
+			if isJSON(cmd) {
+				result, err := ops.UnblockTaskAsOperator(projectRoot, taskID, reason, actor, opts)
+				return jsonout.WriteResult(os.Stdout, result, nil, err)
+			}
+			return commands.UnblockTaskAsOperatorCommand(projectRoot, taskID, reason, actor, opts)
+		}
+
 		authority, err := resolveOrchestratorAuthority(cmd)
 		if err != nil {
 			return err
@@ -927,6 +986,19 @@ func resultWarnings(result interface{ GetWarnings() []string }) []string {
 	}
 	return result.GetWarnings()
 }
+
+// operatorInvocation reports whether an orchestrator-or-operator command runs
+// from an operator shell: no agent identity in the environment or flags. The
+// operator holds no registration, so no generation fences its writes.
+func operatorInvocation(cmd *cobra.Command) bool {
+	return brand.LookupEnv(os.Getenv, "AGENT_ID").Value == "" && !cmd.Flags().Changed("agent-id")
+}
+
+// operatorInvocationHelp closes the help of every command that takes
+// operatorInvocation's path.
+var operatorInvocationHelp = `Without an agent identity (no ` + brand.EnvName("AGENT_ID") + `, no --agent-id) it runs as the
+operator: no registration generation is needed, no role permission applies,
+and --changed-by (default "human") is the audit actor.`
 
 func resolveOrchestratorAuthority(cmd *cobra.Command) (models.AgentAuthority, error) {
 	agentID, err := resolveOrchestratorID(cmd)
@@ -1169,6 +1241,20 @@ Example:
 		taskID := args[0]
 		reason := args[1]
 
+		if operatorInvocation(cmd) {
+			projectRoot, err := requireProjectRoot()
+			if err != nil {
+				return err
+			}
+			actor := resolveChangedBy(cmd)
+			invocation.calledOps = true
+			if isJSON(cmd) {
+				result, err := ops.CancelTaskWithOptions(projectRoot, taskID, reason, actor, requestOpts)
+				return jsonout.WriteResult(os.Stdout, result, nil, err)
+			}
+			return commands.CancelTaskWithOptionsCommand(projectRoot, taskID, reason, actor, requestOpts)
+		}
+
 		authority, err := resolveOrchestratorAuthority(cmd)
 		if err != nil {
 			return err
@@ -1224,25 +1310,27 @@ Example:
 		prURL, _ := cmd.Flags().GetString("pr-url")
 		reason, _ := cmd.Flags().GetString("reason")
 
-		authority, err := resolveOrchestratorAuthority(cmd)
-		if err != nil {
-			return err
-		}
-
 		projectRoot, err := requireProjectRoot()
 		if err != nil {
 			return err
 		}
-
-		resolver, err := loadResolverForRBAC(projectRoot)
-		if err != nil {
-			return err
+		var result *ops.ReconcileMergedResult
+		if operatorInvocation(cmd) {
+			result, err = ops.ReconcileMerged(projectRoot, taskID, mergeCommit, prURL, reason, resolveChangedBy(cmd))
+		} else {
+			authority, authErr := resolveOrchestratorAuthority(cmd)
+			if authErr != nil {
+				return authErr
+			}
+			resolver, rbacErr := loadResolverForRBAC(projectRoot)
+			if rbacErr != nil {
+				return rbacErr
+			}
+			if rbacErr := validateAllowedOperation(resolver, authority.ID, "reconcile-merged"); rbacErr != nil {
+				return rbacErr
+			}
+			result, err = ops.ReconcileMergedWithAuthority(projectRoot, taskID, mergeCommit, prURL, reason, authority)
 		}
-		if err := validateAllowedOperation(resolver, authority.ID, "reconcile-merged"); err != nil {
-			return err
-		}
-
-		result, err := ops.ReconcileMergedWithAuthority(projectRoot, taskID, mergeCommit, prURL, reason, authority)
 		if isJSON(cmd) {
 			return jsonout.WriteResult(os.Stdout, result, nil, err)
 		}
@@ -1746,6 +1834,10 @@ func init() {
 	reconcileMergedCmd.Flags().String("reason", "", "reason for reconciliation (required)")
 	reconcileMergedCmd.MarkFlagRequired("merge-commit")
 	reconcileMergedCmd.MarkFlagRequired("reason")
+	for _, cmd := range []*cobra.Command{cancelTaskCmd, unblockTaskCmd, retargetDependencyCmd, repairSupersededDependenciesCmd, applyDependencyRepairCmd, reconcileMergedCmd} {
+		addChangedByFlag(cmd)
+		cmd.Long += "\n\n" + operatorInvocationHelp
+	}
 
 	// Mark-blocked command flags
 	markBlockedCmd.Flags().String("reason", "", "reason why the task is blocked (required)")
@@ -1766,7 +1858,7 @@ func init() {
 	registerCompletion(markBlockedCmd, "agent-id", completeAgentIDs)
 
 	// Unblock-task command flags
-	unblockTaskCmd.Flags().String("agent-id", "", "orchestrator agent ID (auto-resolved if not provided)")
+	unblockTaskCmd.Flags().String("agent-id", "", "orchestrator agent ID (overrides "+brand.EnvName("AGENT_ID")+"; without either, runs as operator)")
 	unblockTaskCmd.Flags().String("assign-to", "", "doer agent ID to resume the task directly; omitted restores initial status and may remain dependency-held")
 	unblockTaskCmd.Flags().String("reason", "", "reason the blocked task can resume (required)")
 	unblockTaskCmd.Flags().String("rebase-on", "", "branch or commit to rebase the task worktree onto before unblocking")

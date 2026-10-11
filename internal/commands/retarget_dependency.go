@@ -22,6 +22,12 @@ func RetargetDependencyWithAuthorityCommand(projectRoot, taskID, oldDependency s
 	return RetargetDependencyWithAuthorityAndOptionsCommand(projectRoot, taskID, oldDependency, newDependencies, reason, authority, ops.LifecycleRequestOptions{})
 }
 
+// RetargetDependencyWithOptionsCommand retargets an edge for an operator; agentID is the audit actor.
+func RetargetDependencyWithOptionsCommand(projectRoot, taskID, oldDependency string, newDependencies []string, reason, agentID string, request ops.LifecycleRequestOptions) error {
+	result, err := ops.RetargetDependencyWithOptions(projectRoot, taskID, oldDependency, newDependencies, reason, agentID, request)
+	return printRetargetDependencyResult(result, err)
+}
+
 func RetargetDependencyWithAuthorityAndOptionsCommand(projectRoot, taskID, oldDependency string, newDependencies []string, reason string, authority models.AgentAuthority, request ops.LifecycleRequestOptions) error {
 	result, err := ops.RetargetDependencyWithAuthorityAndOptions(projectRoot, taskID, oldDependency, newDependencies, reason, authority, request)
 	return printRetargetDependencyResult(result, err)

@@ -37,6 +37,8 @@ not supply a generation.
 
 This variable is registration-specific, not a value to invent or persist in
 your shell profile. See [agent authority](USAGE_MULTI_AGENTS.md#cli-commands).
+From an operator shell, unset the agent ID and omit `--agent-id` instead: the
+recovery commands listed under operator recovery there need no generation.
 
 ### COLLISION: agent already registered
 
