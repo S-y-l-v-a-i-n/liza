@@ -36,7 +36,13 @@ version-specific guidance "(as of <build/date>; verify)".
 5. **Start the default watch** — use the human's latest requested interval for the rest of the session;
    otherwise default to ten minutes (`/loop` or the available recurring mechanism). Use on-call reporting
    only when explicitly requested. Keep running rounds until the human stops the watch, the run reaches a
-   terminal state, or an escalation blocks progress.
+   terminal state, or an escalation blocks progress. Between rounds, run event legs of
+   `python3 ~/§BRAND_GLOBAL_DIRNAME§/skills/§BRAND_BINARY_NAME§-operator/scripts/watch-until.py` in the background
+   and relaunch one after each exit: a leg ends on any severity-marked alert, a mode change, run completion
+   or the round tick, so the watch lasts for the run, not for a tool timer. Smoke-test one short leg
+   (`--tick 30`) at session start. A watch rebuilt ad hoc in session scratch space is not a fix.
+   Before the human leaves the operator unattended, pre-flight one harmless relay in exactly the command form
+   you will use, while they can still approve a prompt.
 6. **First report** — starting state, the goal you understood, the current delivery objective, and the dominant blocking chain if any.
 
 # Operating constraints (never bypassed, even with full authority)
@@ -60,8 +66,12 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
 1. **Observe** — `§BRAND_BINARY_NAME§ status`, `§BRAND_BINARY_NAME§ get tasks`, `§BRAND_BINARY_NAME§ get agents`,
    `§BRAND_BINARY_NAME§ analyze` (circuit breaker/thrash), `§BRAND_BINARY_NAME§ get anomalies`,
    `§BRAND_BINARY_NAME§ validate`, and `alerts.log` since the last round (AWAITING HUMAN, UNRESOLVED, BLOCKED). `analyze` is not read-only: a
-   HALT pattern trips the breaker and pauses the run, so check the mode after it. Use bounded projections and
-   sequential state reads; blank or truncated output is tool uncertainty, not an empty run. Diff against last round.
+   HALT pattern trips the breaker and pauses the run, so check the mode after it. Read the `status` PHASE
+   HANDOFF section every round: a REPAIR_REQUIRED hand-off or a held plan stays an open concern until it is
+   repaired or retired. Use bounded projections and
+   sequential state reads; blank or truncated output is tool uncertainty, not an empty run, and never
+   evidence that something is absent. Diff against last round, but re-observe every carried-over block or
+   hold rather than restating last round's conclusion.
 2. **Health** — investigate every concern immediately. At minimum, detect:
    - a parked system: `sprint.status: CHECKPOINT` or a non-RUNNING mode holds every blocked role, and
      `§BRAND_BINARY_NAME§ status` prints the remedy. Rule it out before diagnosing any single agent;
@@ -76,17 +86,25 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
    - widespread dependency holds: many claimable-looking tasks waiting on one provider — check what that
      provider supplies each of them before calling it metering;
    - excessive orchestrator wake-ups: wakes that end with no action, or repeated remediation of a cause
-     nobody treats.
+     nobody treats. Attribute each wake to its trigger, including your own notes: every operator note wakes
+     the orchestrator, so hold an information-only note until a note that needs orchestration is due.
 3. **Act** — resolve confirmed concerns within authority; otherwise hold and escalate. Unblocking by symptom
    repair is fine, but every block, supersession and repair — yours or the orchestrator's — also gets a root
    cause in the notes: mechanism, its D-n family, and the durable fix. Distinguish
    transition races from genuine stalls before mutating state. Intentional dependency metering is a
    hypothesis, checked against the consumers' actual input needs and the expanded graph, never an
-   automatic non-finding.
+   automatic non-finding. Before relaying a requested state change, check its form against the CLI source or
+   an existing precedent in state; an unrepresentable request burns an orchestrator session. A permission
+   denial refuses one command, not the operation: retry once in an allowed shape (files written with the file
+   tool, then standalone CLI calls without heredocs, assignments or extra utilities) before declaring yourself
+   blocked, and re-test the block every round.
 4. **Forks** — anything past authority: hold, escalate. Give each option's pros and cons and recommend one
    with its rationale. Offer to do the work yourself; ask the human to act only where you cannot (sandbox,
    credentials, authority).
 5. **Report** — report (format below). Terminal output is transient: whatever matters goes in the notes too.
+   Before sending, tag every factual claim with the observation from this round that supports it (command
+   and output), or mark it INFERRED/UNVERIFIED; run the check instead when it is cheap. Take every timestamp
+   from the clock (`date -u`) in the same turn, never from an estimate.
 6. **Frictions → notes** — every round, collect the frictions since the last one and analyze them on three
    axes — token consumption, errors, workflow contention — plus manual actions you performed and decision
    requests to the human. Report unmeasurable token usage as unmeasured, never as zero. Record each friction and
@@ -156,7 +174,9 @@ For each issue, capture:
 
 **Defect register.** Promote an incident to a numbered defect (D-n) when a durable fix to the execution
 setup (environment, configuration, specs, tooling, or §BRAND_NAME_TITLE§ itself) would remove its cause;
-append recurrences to the existing entry. When the cause is in §BRAND_NAME_TITLE§, suggest raising an
+append recurrences to the existing entry. Operator-caused failures (an unverified claim, a dropped item, a
+wasted wake, a tooling gap) are defects like any other: log them when found, not only when asked.
+When the cause is in §BRAND_NAME_TITLE§, suggest raising an
 issue with its maintainers; the human decides. Rank by token consumption and workflow contention:
 - P1: recurring provider turns or sessions burned for no progress, or critical-path contention
   (hours of stall, many tasks held, operator or human needed to move the run);
@@ -165,9 +185,12 @@ issue with its maintainers; the human decides. Rank by token consumption and wor
 Each entry: evidence (cite journal entries, don't restate), mechanism, why this priority, owner, fix as
 a hypothesis with its validation (the observation that would disprove it), related IDs, dated status.
 Maintain a ranked list of the issues to hand over to the §BRAND_NAME_TITLE§ maintainers; re-rank it with the human as
-entries change. Durable fixes for register defects are
-made only on human request (routine recovery stays delegated); track fix status (commit, rebuild
-needed, verified in a run or not) only for those.
+entries change. Every item carried across a session hand-over gets an owner, a next action and a recheck
+trigger. Durable fixes for register defects are
+made only on human request (routine recovery stays delegated), but propose them: for a defect whose owner is
+the operator, this skill or its tooling, put a concrete diff to the skill or its scripts before the human in
+the same turn. A fix that lives only in session scratch space or in "from now on I will" practice is a
+stopgap, labeled as such. Track fix status (proposed, commit, rebuild needed, verified in a run or not).
 
 Before a terminal-state or human handoff, run `/§BRAND_BINARY_NAME§-logs` over
 the complete run and reconcile its

@@ -75,6 +75,7 @@
     "skills/adversarial-pairing/scripts": "Skill-local Python tooling for locked Markdown blackboard writes in adversarial-pairing workflows.",
     "skills/context-engineering/scripts": "Python tooling for indexing prompt, output, and context corpora for context-engineering analysis.",
     "skills/liza-logs/scripts": "Python tooling for analyzing and querying Liza logs and blackboard state dumps.",
+    "skills/liza-operator/scripts": "One watch leg that exits on any severity-marked alert (not an alert-type allow-list), a mode change, run completion or the round tick",
     "skills/spec-backfill/scripts": "Shell tooling for detecting stale specs and updating spec-to-code mappings.",
     "skills/white-box-red-testing/scripts": "Python target discovery support for white-box red-test generation."
   },
