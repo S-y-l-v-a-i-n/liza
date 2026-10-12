@@ -97,7 +97,9 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
    an existing precedent in state; an unrepresentable request burns an orchestrator session. A permission
    denial refuses one command, not the operation: retry once in an allowed shape (files written with the file
    tool, then standalone CLI calls without heredocs, assignments or extra utilities) before declaring yourself
-   blocked, and re-test the block every round.
+   blocked, and re-test the block every round. Your own commits are load too: repository hooks may run a full
+   index refresh after each one. Batch decision and journal records into one commit per round, and let the
+   hook's documentation-only skip apply (turn off any gate that disables it for that commit).
 4. **Forks** — anything past authority: hold, escalate. Give each option's pros and cons and recommend one
    with its rationale. Offer to do the work yourself; ask the human to act only where you cannot (sandbox,
    credentials, authority).
