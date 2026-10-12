@@ -158,6 +158,9 @@ Keep these sections current:
   by task ID, even if it eventually merged;
 - settled human decisions and their downstream effect;
 - incident journal;
+- block and supersession registers: one row per `blocked` or supersession event, appended every round
+  from task histories (time, task, agent, cause class, reason, what ended it, journal entries), never
+  reconstructed at the end of the run;
 - run-wide role, supervisor, environment, tool, error, struggle, and context
   patterns, quantified when evidence supports it;
 - current watch state;
