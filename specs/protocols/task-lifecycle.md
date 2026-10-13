@@ -577,6 +577,14 @@ close the gap in test support, fixtures or its own constants with production
 code and merged contracts unchanged
 ([ADR-0206](../architecture/ADR/0206-in-task-scope-exceptions.md)).
 
+`--budget-exception <seconds> --budget-ruling <decision-id>` records a
+human-ruled canonical admission budget raise on a coding task's restore
+(1-14400 s, ruling required). Admission then uses the larger of the reviewed
+`timeout_seconds` and the largest recorded exception; commands, order and
+acceptance are unchanged. The orchestrator uses it instead of a correction plan
+when admission timed out and only the budget is wrong
+([ADR-0207](../architecture/ADR/0207-admission-budget-exceptions.md)).
+
 #### Infrastructure-only contention holds
 
 `mark-blocked --state-lock-timeout` or explicit assessment adoption records a

@@ -440,7 +440,7 @@ func prepareSubmitForReview(projectRoot, taskID, commitRef, agentID string, auth
 
 	var acceptanceBatch time.Duration
 	if acceptance != nil {
-		acceptanceBatch = acceptanceBatchTimeout(acceptance.contract.TimeoutSeconds)
+		acceptanceBatch = acceptanceBatchTimeout(acceptance.batchTimeoutSeconds)
 	}
 	return &preparedSubmission{
 		acceptanceBatch: acceptanceBatch,

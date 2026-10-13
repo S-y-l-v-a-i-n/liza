@@ -44,6 +44,9 @@ type UnblockTaskOptions struct {
 	// ScopeException, when set, records a bounded in-task scope grant on
 	// the unblocked history entry (ADR-0206). Coding tasks only.
 	ScopeException *ScopeException
+	// BudgetException, when set, records a human-ruled canonical admission
+	// budget raise on the unblocked history entry (ADR-0207). Coding tasks only.
+	BudgetException *BudgetException
 	// Only mechanical contention recovery supplies this captured episode.
 	stateLockHold *models.StateLockHold
 	// Only UnblockTaskAsOperator sets this; it waives the orchestrator-ID check.
@@ -170,6 +173,11 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 			return nil, &PreconditionError{Reason: err.Error()}
 		}
 	}
+	if opts.BudgetException != nil {
+		if err := opts.BudgetException.Validate(); err != nil {
+			return nil, &PreconditionError{Reason: err.Error()}
+		}
+	}
 	if err := identity.ValidateRole(agentID, roles.Orchestrator); err != nil && !opts.operator {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("only orchestrator agents can unblock tasks: %v", err)}
 	}
@@ -209,9 +217,10 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 		Reason, AssignTo, RebaseOn string
 		AllowDirty                 bool
 		// omitempty keeps the identity of requests made without the flags.
-		NewIteration   bool            `json:",omitempty"`
-		ScopeException *ScopeException `json:",omitempty"`
-	}{reason, opts.AssignTo, opts.RebaseOn, opts.AllowDirty, opts.NewIteration, opts.ScopeException})
+		NewIteration    bool             `json:",omitempty"`
+		ScopeException  *ScopeException  `json:",omitempty"`
+		BudgetException *BudgetException `json:",omitempty"`
+	}{reason, opts.AssignTo, opts.RebaseOn, opts.AllowDirty, opts.NewIteration, opts.ScopeException, opts.BudgetException})
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +275,9 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 		}
 		if opts.ScopeException != nil && expectedDoer != roles.Coder {
 			return &PreconditionError{Reason: fmt.Sprintf("scope exceptions apply to coding tasks only; task %s has doer role %q", taskID, expectedDoer)}
+		}
+		if opts.BudgetException != nil && expectedDoer != roles.Coder {
+			return &PreconditionError{Reason: fmt.Sprintf("budget exceptions apply to coding tasks only; task %s has doer role %q", taskID, expectedDoer)}
 		}
 		if opts.AssignTo != "" && assignRole != expectedDoer {
 			return &PreconditionError{Reason: fmt.Sprintf("assign-to agent role %q does not match task doer role %q", assignRole, expectedDoer)}
@@ -377,6 +389,9 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 		historyExtra["new_iteration"] = opts.NewIteration
 		if opts.ScopeException != nil {
 			historyExtra[historyExtraScopeException] = opts.ScopeException.historyValue()
+		}
+		if opts.BudgetException != nil {
+			historyExtra[historyExtraBudgetException] = opts.BudgetException.historyValue()
 		}
 		task.BlockedReason = nil
 		task.BlockedQuestions = nil

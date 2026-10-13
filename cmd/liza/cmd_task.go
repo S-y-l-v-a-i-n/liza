@@ -804,7 +804,13 @@ var unblockTaskCmd = &cobra.Command{
 	stated; acceptance, provider dependencies, review boundary and lifecycle gates
 	stay unchanged. Use it when the blocked task can close the gap itself in test
 	support, fixtures or its own constants, with production code and merged
-	contracts unchanged and no other unmerged writer of those files.`,
+	contracts unchanged and no other unmerged writer of those files.
+	With --budget-exception <seconds> and --budget-ruling <decision-id>, a coding
+	task's canonical admission batch budget becomes the larger of its reviewed
+	timeout_seconds and the largest recorded exception (at most 14400). Commands,
+	order, manifest, proofs and deferrals stay as reviewed. Use it when admission
+	timed out and a human ruling authorizes the larger budget; the ruling is
+	recorded as given, not looked up.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (retErr error) {
 		if isJSON(cmd) {
@@ -851,13 +857,18 @@ var unblockTaskCmd = &cobra.Command{
 				return err
 			}
 		}
+		budgetException, err := budgetExceptionFromFlags(cmd)
+		if err != nil {
+			return err
+		}
 		opts := ops.UnblockTaskOptions{
-			Request:        requestOpts,
-			AssignTo:       assignTo,
-			RebaseOn:       rebaseOn,
-			AllowDirty:     allowDirty,
-			NewIteration:   newIteration,
-			ScopeException: scopeException,
+			Request:         requestOpts,
+			AssignTo:        assignTo,
+			RebaseOn:        rebaseOn,
+			AllowDirty:      allowDirty,
+			NewIteration:    newIteration,
+			ScopeException:  scopeException,
+			BudgetException: budgetException,
 		}
 
 		if operatorInvocation(cmd) {
@@ -914,6 +925,23 @@ func readScopeException(path string) (*ops.ScopeException, error) {
 	exception, err := ops.ParseScopeException(data)
 	if err != nil {
 		return nil, cliValidationWrap("--scope-exception-file", err)
+	}
+	return exception, nil
+}
+
+func budgetExceptionFromFlags(cmd *cobra.Command) (*ops.BudgetException, error) {
+	seconds, ruling := cmd.Flags().Changed("budget-exception"), cmd.Flags().Changed("budget-ruling")
+	if !seconds && !ruling {
+		return nil, nil
+	}
+	if !seconds || !ruling {
+		return nil, cliValidationError("--budget-exception and --budget-ruling must be given together")
+	}
+	exception := &ops.BudgetException{}
+	exception.TimeoutSeconds, _ = cmd.Flags().GetInt("budget-exception")
+	exception.Ruling, _ = cmd.Flags().GetString("budget-ruling")
+	if err := exception.Validate(); err != nil {
+		return nil, cliValidationWrap("--budget-exception", err)
 	}
 	return exception, nil
 }
@@ -1899,6 +1927,8 @@ func init() {
 	unblockTaskCmd.Flags().Bool("allow-dirty", false, "allow tracked worktree changes during --rebase-on by using git rebase --autostash")
 	unblockTaskCmd.Flags().Bool("new-iteration", false, "make the resume consume an iteration; omitted, the next claim continues the current iteration")
 	unblockTaskCmd.Flags().String("scope-exception-file", "", "JSON file granting a coding task a bounded in-task scope exception (files, change, unchanged)")
+	unblockTaskCmd.Flags().Int("budget-exception", 0, "raise a coding task's canonical admission budget to this many seconds (requires --budget-ruling)")
+	unblockTaskCmd.Flags().String("budget-ruling", "", "human decision that authorizes --budget-exception")
 	unblockTaskCmd.MarkFlagRequired("reason")
 	registerCompletion(unblockTaskCmd, "agent-id", completeAgentIDs)
 	registerCompletion(unblockTaskCmd, "assign-to", completeAgentIDs)

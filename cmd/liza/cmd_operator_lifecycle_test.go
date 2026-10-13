@@ -325,3 +325,39 @@ func TestOperatorUnblockTaskRecordsScopeExceptionFile(t *testing.T) {
 		t.Fatalf("status %s, exception %+v", task.Status, task.History[len(task.History)-1].Extra)
 	}
 }
+
+func TestOperatorUnblockTaskRecordsBudgetException(t *testing.T) {
+	// GIVEN a blocked coding task with no worktree
+	now := time.Now().UTC()
+	blocked := testhelpers.BuildTaskByStatus("task-op-budget", models.TaskStatusBlocked, now)
+	blocked.Worktree = nil
+	blocked.BaseCommit = nil
+	root, statePath := setupOperatorProject(t, blocked)
+
+	// WHEN either flag is given alone, or the budget exceeds the engine cap
+	for name, args := range map[string][]string{
+		"seconds only": {"--budget-exception", "3600"},
+		"ruling only":  {"--budget-ruling", "D122"},
+		"above cap":    {"--budget-exception", "14401", "--budget-ruling", "D122"},
+	} {
+		err := executeRootCommand(t, root, append([]string{"unblock-task", "task-op-budget", "--reason", "budget"}, args...)...)
+		// THEN the command refuses and the task stays BLOCKED
+		if err == nil || !strings.Contains(err.Error(), "--budget-exception") {
+			t.Fatalf("%s: err = %v, want budget-exception refusal", name, err)
+		}
+		if task := mustFindTask(t, readState(t, statePath), "task-op-budget"); task.Status != models.TaskStatusBlocked {
+			t.Fatalf("%s: status = %s, want BLOCKED", name, task.Status)
+		}
+	}
+
+	// WHEN both flags are valid
+	if err := executeRootCommand(t, root, "unblock-task", "task-op-budget", "--reason", "budget", "--budget-exception", "3600", "--budget-ruling", "D122"); err != nil {
+		t.Fatalf("operator unblock-task with budget exception failed: %v", err)
+	}
+	// THEN the unblocked entry carries the exception
+	task := mustFindTask(t, readState(t, statePath), "task-op-budget")
+	exception, ok := task.History[len(task.History)-1].Extra["budget_exception"].(map[string]any)
+	if task.Status == models.TaskStatusBlocked || !ok || exception["timeout_seconds"] != 3600 || exception["ruling"] != "D122" {
+		t.Fatalf("status %s, exception %+v", task.Status, task.History[len(task.History)-1].Extra)
+	}
+}

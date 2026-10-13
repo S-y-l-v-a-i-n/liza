@@ -116,6 +116,15 @@ never invalidates an executed command. The MERGED write moves the deferrals to
 the goal's deferred-validation ledger, whose batch satisfies them on integration
 ([ADR-0204](../architecture/ADR/0204-deferred-validation-tier.md)).
 
+### Batch budget
+
+Admission runs the executed commands within one batch budget: the reviewed
+contract's `timeout_seconds`, raised to the largest `budget_exception` recorded
+by `unblock-task --budget-exception --budget-ruling` on a coding task, never
+lowered and never above the 14400 s cap. The same budget sets the in-flight
+submit marker deadline. Receipts and `deferred[].timeout_seconds` keep the
+reviewed value ([ADR-0207](../architecture/ADR/0207-admission-budget-exceptions.md)).
+
 Failed execution returns the failing command's combined stdout/stderr in the
 error, masked before an 8 KiB excerpt limit and explicitly marked if truncated.
 Timeout and output-limit errors return no excerpt, since incomplete capture may

@@ -97,6 +97,10 @@ type acceptanceInput struct {
 	contract      *referencecontract.AcceptanceContract
 	specRef       string
 	destructiveDB bool
+	// batchTimeoutSeconds is the admission batch budget: the reviewed
+	// timeout_seconds raised by any recorded budget exception (ADR-0207).
+	// contract keeps the reviewed value for receipts and deferrals.
+	batchTimeoutSeconds int
 	// deferred is derived from the contract and the current operator rulings;
 	// admission skips these commands (ADR-0204).
 	deferred []models.AcceptanceDeferredCommand
@@ -321,7 +325,8 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	return &acceptanceInput{
 		source: *source, contract: contract,
 		specRef: task.SpecRef, destructiveDB: task.DestructiveDB,
-		deferred: deferred,
+		batchTimeoutSeconds: admissionTimeoutSeconds(contract.TimeoutSeconds, task.History),
+		deferred:            deferred,
 	}, nil
 }
 
@@ -838,7 +843,7 @@ func executeAcceptanceReceipt(ctx context.Context, root string, task *models.Tas
 		return nil, err
 	}
 	commands, indices := input.executedCommands()
-	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), commands, indices, input.contract.TimeoutSeconds, grant)
+	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), commands, indices, input.batchTimeoutSeconds, grant)
 	if err != nil {
 		return nil, acceptanceError(task.ID, "acceptance.execution", err.Error())
 	}

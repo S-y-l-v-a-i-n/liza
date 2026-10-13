@@ -101,3 +101,25 @@ func TestBlockedTaskInPlaceScopeExceptionRoute(t *testing.T) {
 		}
 	}
 }
+
+// D-145: the blocked-task wake routes a timeout-only admission failure to a
+// human-ruled budget exception instead of a correction plan.
+func TestBlockedTaskBudgetExceptionRoute(t *testing.T) {
+	withPromptBrandValues(t, func() {
+		brand.BinaryName = "acme-cli"
+		brand.ProjectDirName = ".acme-run"
+	})
+	rendered, err := RenderWakeInstructions("BLOCKED_TASKS", "orchestrator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{
+		"Admission timed out, only timeout_seconds wrong",
+		"human ruling: unblock-task --budget-exception <s> --budget-ruling <id>, no correction plan",
+		"none: assess-blocked --human-action",
+	} {
+		if !strings.Contains(rendered, phrase) {
+			t.Errorf("BLOCKED_TASKS missing %q", phrase)
+		}
+	}
+}
