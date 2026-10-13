@@ -349,6 +349,11 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   (copy untracked drafts); pin its SHA with a tag when cleanup removes the branch. If the operator cannot
   legitimately author that commit, keep the task blocked and route preservation to its agent or the human. This commit rule does not apply to the documented
   `unblock-task --rebase-on --allow-dirty` path: snapshot first, then verify HEAD and restored tracked changes.
+- **Sweep provider consumers before any supersession** — before relaying a ruling or approval that
+  supersedes tasks, scan live tasks' `provider_dependencies` for the affected provider plans and output
+  indexes. Output indexes do not transfer to a replacement, so every consumer that selects a retired child
+  re-blocks. Name those consumers in the relay, or prefer a route that does not supersede (for example a
+  budget exception at unblock).
 - **Clean state is not recovery evidence** — if a task was BLOCKED, rejected repeatedly,
   superseded, abandoned, integration-failed, or recovered after multiple agent attempts, analyze the
   involved agent logs with `/§BRAND_BINARY_NAME§-logs` before reassigning. If the same failure mode
