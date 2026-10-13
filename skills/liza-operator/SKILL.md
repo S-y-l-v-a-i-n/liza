@@ -88,6 +88,10 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
    - excessive orchestrator wake-ups: wakes that end with no action, or repeated remediation of a cause
      nobody treats. Attribute each wake to its trigger, including your own notes: every operator note wakes
      the orchestrator, so hold an information-only note until a note that needs orchestration is due.
+     A human decision to keep a blocked task blocked is the exception: record it on that task with
+     `§BRAND_BINARY_NAME§ add-human-note` in the same round (who decided and when, that the block is
+     intentional, what releases it). Otherwise the orchestrator, which cannot see the human conversation,
+     re-assesses the hold as an unresolved blocker on every wake.
 3. **Act** — resolve confirmed concerns within authority; otherwise hold and escalate. Unblocking by symptom
    repair is fine, but every block, supersession and repair — yours or the orchestrator's — also gets a root
    cause in the notes: mechanism, its D-n family, and the durable fix. Distinguish
