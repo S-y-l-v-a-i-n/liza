@@ -1,17 +1,49 @@
 package ops
 
 import (
+	"fmt"
+	"log"
+
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
 )
 
+const AutoResumeConfigKey = "config.auto_resume"
+
+// AutoResumeConfigResult describes the value committed by this operation.
+type AutoResumeConfigResult struct {
+	Key     string `json:"key"`
+	Value   bool   `json:"value"`
+	Outcome string `json:"outcome"`
+}
+
 // SetAutoResume sets the auto_resume config flag. Idempotent.
+// Keep the existing error-only API for native callers.
 func SetAutoResume(projectRoot string, enabled bool) error {
-	lp := paths.New(projectRoot)
-	bb := db.For(lp.StatePath())
-	return bb.Modify(func(s *models.State) error {
-		s.Config.AutoResume = enabled
+	_, err := SetAutoResumeWithResult(projectRoot, enabled)
+	return err
+}
+
+// SetAutoResumeWithResult compares and writes the policy under the native lock.
+// It changes no execution mode, sprint status or task state.
+func SetAutoResumeWithResult(projectRoot string, enabled bool) (*AutoResumeConfigResult, error) {
+	bb := db.For(paths.New(projectRoot).StatePath())
+	result := &AutoResumeConfigResult{Key: AutoResumeConfigKey, Value: enabled, Outcome: "unchanged"}
+	err := bb.Modify(func(state *models.State) error {
+		if state.Config.AutoResume != enabled {
+			state.Config.AutoResume = enabled
+			result.Outcome = "set"
+		}
 		return nil
 	})
+	if err != nil {
+		result.Outcome = "failed"
+	}
+	// Boolean policy metadata only; no goal, paths, shell text or credentials.
+	log.Printf("config_set key=%s outcome=%s actor=operator value=%t", AutoResumeConfigKey, result.Outcome, enabled)
+	if err != nil {
+		return nil, fmt.Errorf("set %s: %w", AutoResumeConfigKey, err)
+	}
+	return result, nil
 }
