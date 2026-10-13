@@ -114,6 +114,7 @@ a stale authoritative reference.
 §BRAND_BINARY_NAME§ repair-acceptance-commits [--dry-run] # Restore evidence orphaned by an integration-branch rewrite
 §BRAND_BINARY_NAME§ repair-arch-ref <task-id> --arch-ref <path#heading> --reason <reason> # Fill an unstarted task's empty arch_ref
 §BRAND_BINARY_NAME§ defer-provider-dependency <task-id> --provider-task <id> --transition <name> --reason <reason> # Move an unstarted plan's writer-order wait to its outputs
+§BRAND_BINARY_NAME§ release-blocked-chain <task-id> --reason <reason> # Permit one more replacement of a capped BLOCKED task, without pausing the run
 §BRAND_BINARY_NAME§ reserve-provider <task-id> <provider-task-id> --transition <name> --reason <reason> # Hold an unstarted writer until every child a provider generates merges
 §BRAND_BINARY_NAME§ deferred-validation rule --command <exact> --ruling <decision> # Defer an exact canonical command at strict admission
 §BRAND_BINARY_NAME§ deferred-validation unrule --command <exact> # Withdraw a ruling; receipts that relied on it need update-review-commit
@@ -159,6 +160,13 @@ that was never claimed. The plan becomes claimable, keeps its decomposition and
 unchanged. A wait selecting tasks of another stage than the plan's writers is
 refused. The move is recorded as `provider_dependency_deferred` history and
 wakes no one.
+
+If agents cannot replace a BLOCKED task because its lineage reached the
+blocked-recovery cap, and you decide one more replacement is warranted,
+`§BRAND_BINARY_NAME§ release-blocked-chain <task-id> --reason "..."` releases
+its current blocked episode without `analyze` tripping the circuit breaker and
+pausing every agent. It records `blocked_recovery_released` history, which wakes
+the orchestrator for that task. The cap applies again at the next block.
 
 If a correction must land between two writers of an ordered chain and the
 later writer has not started, `§BRAND_BINARY_NAME§ reserve-provider <writer-id>

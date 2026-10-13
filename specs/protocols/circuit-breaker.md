@@ -203,8 +203,10 @@ predecessors whose `superseded` entry carries the `blocked_recovery` marker.
 Because the cap holds the reported task `BLOCKED`, the evidence stays current.
 The response carries a typed `subject` (`task_id`, `blocked_at`). Resolving it
 with `resume` releases one further replacement of exactly that task and blocked
-episode. Other capped chains, and later blocks, stay capped, and the next one
-is reported on the following check.
+episode. An operator `release-blocked-chain` releases the same episode without
+this response or a pause ([ADR-0208](../architecture/ADR/0208-operator-release-of-capped-blocked-lineage.md)),
+and the released task is no longer reported. Other capped chains, and later
+blocks, stay capped, and the next one is reported on the following check.
 
 Detection reports one candidate, selected in this order: generic anomaly
 patterns (all `HALT`), a provider-audit `HALT`, `planning_review_churn`,

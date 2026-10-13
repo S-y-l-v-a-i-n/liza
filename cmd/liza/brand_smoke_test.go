@@ -125,6 +125,14 @@ func TestNonDefaultBrandDeferProviderDependencyHelp(t *testing.T) {
 	assertNoDefaultBrandLeaks(t, "defer-provider-dependency help", help)
 }
 
+func TestNonDefaultBrandReleaseBlockedChainHelp(t *testing.T) {
+	bin := buildNonDefaultBrandBinary(t)
+	help := runBrandSmokeCommand(t, bin, "release-blocked-chain", "--help")
+	assertContains(t, help, "acme-agent release-blocked-chain <task-id>")
+	assertContains(t, help, "Identified agent sessions cannot use this command")
+	assertNoDefaultBrandLeaks(t, "release-blocked-chain help", help)
+}
+
 func TestNonDefaultBrandReserveProviderHelp(t *testing.T) {
 	bin := buildNonDefaultBrandBinary(t)
 	help := runBrandSmokeCommand(t, bin, "reserve-provider", "--help")

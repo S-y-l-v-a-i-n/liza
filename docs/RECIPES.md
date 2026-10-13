@@ -170,7 +170,7 @@ liza resume
 
 For `planning_review_churn`, pause downstream fan-out and inspect rejection evidence before choosing remediation.
 
-For `blocked_replacement_chain`, read each recorded cause and stated change in the evidence, then decide: unblock, cancel, fix the source, or allow one more replacement. `resume` releases exactly the reported task's current blocked episode.
+For `blocked_replacement_chain`, read each recorded cause and stated change in the evidence, then decide: unblock, cancel, fix the source, or allow one more replacement. `resume` releases exactly the reported task's current blocked episode. To allow one more replacement without pausing the run, use `release-blocked-chain <task> --reason "..."` instead of `analyze`/`resume`.
 
 ## Integration Failure Recovery
 

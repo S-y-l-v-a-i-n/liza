@@ -341,7 +341,7 @@ func checkBlockedRecovery(state *models.State, task *models.Task, changed string
 	if chain, capped := models.BlockedRecoveryCapped(state, task); capped {
 		return &PreconditionError{Reason: fmt.Sprintf(
 			"replacing BLOCKED task %s exceeds the blocked-recovery cap: lineage %s already had %d blocked recoveries (%s). "+
-				"Hold it with assess-blocked for a human decision; resolving the %s circuit-breaker halt for this blocked episode (analyze, then resume) authorizes one further replacement",
+				"Hold it with assess-blocked for a human decision; a human release of this blocked episode (release-blocked-chain, or analyze then resume to resolve the %s circuit-breaker halt) authorizes one further replacement",
 			task.ID, strings.Join(chain.Path, " -> "), len(chain.Recoveries), strings.Join(chain.Recoveries, ", "), models.BlockedReplacementChainPattern)}
 	}
 	if strings.TrimSpace(changed) == "" {

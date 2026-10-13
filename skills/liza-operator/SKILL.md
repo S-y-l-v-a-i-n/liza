@@ -66,7 +66,9 @@ Conflict between "keep moving" and an operating constraint → the constraint wi
 1. **Observe** — `§BRAND_BINARY_NAME§ status`, `§BRAND_BINARY_NAME§ get tasks`, `§BRAND_BINARY_NAME§ get agents`,
    `§BRAND_BINARY_NAME§ analyze` (circuit breaker/thrash), `§BRAND_BINARY_NAME§ get anomalies`,
    `§BRAND_BINARY_NAME§ validate`, and `alerts.log` since the last round (AWAITING HUMAN, UNRESOLVED, BLOCKED). `analyze` is not read-only: a
-   HALT pattern trips the breaker and pauses the run, so check the mode after it. Read the `status` PHASE
+   HALT pattern trips the breaker and pauses the run, so check the mode after it. Once the human rules one more
+   replacement for a task at the blocked-recovery cap, run `§BRAND_BINARY_NAME§ release-blocked-chain <task> --reason "<ruling>"`,
+   which releases it without that pause. Read the `status` PHASE
    HANDOFF section every round: a REPAIR_REQUIRED hand-off or a held plan stays an open concern until it is
    repaired or retired. Use bounded projections and
    sequential state reads; blank or truncated output is tool uncertainty, not an empty run, and never

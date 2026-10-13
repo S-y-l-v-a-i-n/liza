@@ -334,7 +334,8 @@ replacement, all through the shared supersession core:
   (`blocked_reason`, `blocked_at`, `changed`).
 - When the lineage already holds two such recoveries, the replacement is
   refused until `resume` resolves the `blocked_replacement_chain`
-  circuit-breaker response whose subject is that task and blocked episode.
+  circuit-breaker response whose subject is that task and blocked episode,
+  or an operator `release-blocked-chain` records a release in that episode.
   The refusal leaves state unchanged.
 
 Superseding without replacements is not a recovery.

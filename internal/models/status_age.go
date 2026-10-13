@@ -65,6 +65,7 @@ var nonStatusTransitionEvents = map[TaskEventName]struct{}{
 	TaskEventDependencyDeferred:        {},
 	TaskEventProviderDeclarationStale:  {},
 	TaskEventPlanHandoffUndecided:      {},
+	TaskEventBlockedRecoveryReleased:   {},
 }
 
 // IsStatusTransitionEvent classifies a task-history event name. An event in

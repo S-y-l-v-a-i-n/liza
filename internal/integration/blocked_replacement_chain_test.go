@@ -263,3 +263,47 @@ func TestBlockedReplacementChain_ProviderAuditDoesNotMaskRelease(t *testing.T) {
 		}
 	})
 }
+
+// D-146: an operator release lifts the cap for exactly one episode while the
+// run stays RUNNING and the circuit breaker untouched (ADR-0208).
+func TestBlockedReplacementChain_OperatorReleaseWithoutPause(t *testing.T) {
+	release := func(t *testing.T, f *blockedChainFixture, id string) {
+		t.Helper()
+		if _, err := ops.ReleaseBlockedChain(f.root, id, "human ruled one more replacement"); err != nil {
+			t.Fatalf("ReleaseBlockedChain(%s) error: %v", id, err)
+		}
+	}
+
+	t.Run("releases one episode of one chain", func(t *testing.T) {
+		f := newBlockedChainFixture(t)
+		f.cappedChain("one", "one-c")
+		f.cappedChain("two", "two-c")
+		requireCapRefusal(t, f.supersede("one-c", "one-x"), f, "one-c")
+
+		release(t, f, "one-c")
+		state := f.read()
+		if state.Config.Mode != models.SystemModeRunning || state.CircuitBreaker.CurrentResponse != nil || len(state.CircuitBreaker.History) != 0 {
+			t.Fatalf("release paused or touched the breaker: mode %s, response %+v, history %d",
+				state.Config.Mode, state.CircuitBreaker.CurrentResponse, len(state.CircuitBreaker.History))
+		}
+
+		if err := f.supersede("one-c", "one-d"); err != nil {
+			t.Fatalf("released replacement refused: %v", err)
+		}
+		f.block("one-d")
+		requireCapRefusal(t, f.supersede("one-d", "one-e"), f, "one-d")
+
+		requireCapRefusal(t, f.supersede("two-c", "two-d"), f, "two-c")
+		analyzeReports(t, f, "two-c")
+	})
+
+	t.Run("a same-task re-block after release is capped again", func(t *testing.T) {
+		f := newBlockedChainFixture(t)
+		f.cappedChain("one", "one-c")
+		release(t, f, "one-c")
+		f.block("one-c")
+
+		requireCapRefusal(t, f.supersede("one-c", "one-d"), f, "one-c")
+		analyzeReports(t, f, "one-c")
+	})
+}

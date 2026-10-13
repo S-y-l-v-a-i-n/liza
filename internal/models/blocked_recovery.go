@@ -8,10 +8,11 @@ import (
 // Blocked-recovery cap (ADR-0171). Replacing a BLOCKED task is a recovery
 // attempt; a lineage that keeps blocking after replacement is not converging.
 // Agents may perform at most MaxAgentBlockedRecoveries such replacements per
-// lineage. The next one is refused until a human resolves the
-// blocked_replacement_chain halt reported for that exact task and blocked
-// episode. Supersession, plan-output admission and circuit-breaker detection
-// all decide through BlockedRecoveryCapped so they cannot disagree.
+// lineage. The next one is refused until a human releases that exact task and
+// blocked episode: by resolving the blocked_replacement_chain halt reported for
+// it, or with an operator release recorded in the episode (ADR-0208).
+// Supersession, plan-output admission and circuit-breaker detection all decide
+// through BlockedRecoveryCapped so they cannot disagree.
 const (
 	// MaxAgentBlockedRecoveries is the number of blocked-recovery replacements
 	// a lineage may accumulate before further agent replacement is refused.
@@ -128,14 +129,19 @@ func BlockedRecoveryLineage(state *State, task *Task) BlockedRecoveryChain {
 	return walk(task.ID)
 }
 
-// BlockedRecoveryReleased reports whether a human resolved the
-// blocked_replacement_chain response reported for task's current blocked
-// episode. A response without a subject, for another task or for an earlier
-// episode never releases; neither does a task with no recorded episode.
+// BlockedRecoveryReleased reports whether a human released task's current
+// blocked episode: an operator blocked_recovery_released entry recorded in the
+// episode, or a resolved blocked_replacement_chain response whose subject names
+// the task and episode. A response without a subject, for another task or for
+// an earlier episode never releases; neither does a release recorded before the
+// episode began, nor anything for a task with no recorded episode.
 func BlockedRecoveryReleased(state *State, task *Task) bool {
 	blockedAt := BlockedEpisodeAt(task)
 	if blockedAt.IsZero() {
 		return false
+	}
+	if episodeReleasedByOperator(task) {
+		return true
 	}
 	for _, entry := range state.CircuitBreaker.History {
 		if entry.Pattern == nil || *entry.Pattern != BlockedReplacementChainPattern || entry.ResolvedAt == nil || entry.Subject == nil {
@@ -143,6 +149,25 @@ func BlockedRecoveryReleased(state *State, task *Task) bool {
 		}
 		if entry.Subject.TaskID == task.ID && entry.Subject.BlockedAt.Equal(blockedAt) {
 			return true
+		}
+	}
+	return false
+}
+
+// episodeReleasedByOperator reports whether task's history holds a
+// blocked_recovery_released entry after its latest status-transition event,
+// i.e. within the episode BlockedEpisodeAt identifies. Episode scope follows
+// history order, so any later transition (a re-block, an unblock, a failed
+// fresh recovery) ends the release with the episode. Callers must establish
+// that the task has a recorded episode first.
+func episodeReleasedByOperator(task *Task) bool {
+	for i := len(task.History) - 1; i >= 0; i-- {
+		event := task.History[i].Event
+		if event == TaskEventBlockedRecoveryReleased {
+			return true
+		}
+		if transition, _ := IsStatusTransitionEvent(event); transition {
+			return false
 		}
 	}
 	return false

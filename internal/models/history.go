@@ -109,6 +109,10 @@ const (
 	// TaskEventPlanHandoffUndecided records a PLANNING_COMPLETE turn that left
 	// a merged plan without a disposition (D-49).
 	TaskEventPlanHandoffUndecided TaskEventName = "plan_handoff_undecided"
+	// TaskEventBlockedRecoveryReleased records an operator releasing the
+	// blocked-recovery cap for a BLOCKED task's current episode
+	// (release-blocked-chain, ADR-0208).
+	TaskEventBlockedRecoveryReleased TaskEventName = "blocked_recovery_released"
 )
 
 // TaskHistoryEntry represents a single event in a task's history

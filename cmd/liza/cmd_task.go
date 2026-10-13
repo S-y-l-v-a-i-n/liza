@@ -275,8 +275,9 @@ Requirements:
   - --recoverability-command is required when no replacements are given
   - --changed is required when replacing a BLOCKED task: state what differs
     from the blocked attempt. Agents may replace a lineage's BLOCKED tasks at
-    most %[4]d times; the next replacement is refused until a human resolves
-    the %[5]s circuit-breaker halt for that blocked episode
+    most %[4]d times; the next replacement is refused until a human releases
+    that blocked episode (release-blocked-chain, or resolving the %[5]s
+    circuit-breaker halt)
 
 Replacement task IDs are optional and should be comma-separated.
 When no replacements are given, the task's branch is deleted immediately after

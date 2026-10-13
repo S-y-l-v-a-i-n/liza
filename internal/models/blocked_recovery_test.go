@@ -196,3 +196,59 @@ func TestBlockedRecoveryCapped(t *testing.T) {
 		}
 	})
 }
+
+// D-146: an operator release recorded in the task's current blocked episode
+// lifts the cap for that episode only (ADR-0208).
+func TestBlockedRecoveryCapped_OperatorRelease(t *testing.T) {
+	capped := func() *State {
+		return chainState(recoveryTask("a", TaskStatusSuperseded, 0, true), recoveryTask("b", TaskStatusSuperseded, 2, true), recoveryTask("c", TaskStatusBlocked, 4, false))
+	}
+	at := func(minute int, event string) TaskHistoryEntry {
+		return TaskHistoryEntry{Time: recoveryEpoch.Add(time.Duration(minute) * time.Minute), Event: event}
+	}
+
+	t.Run("a release in the current episode lifts the cap without moving the episode", func(t *testing.T) {
+		state := capped()
+		c := state.FindTask("c")
+		episode := BlockedEpisodeAt(c)
+		c.History = append(c.History, at(5, TaskEventBlockedRecoveryReleased), at(6, TaskEventOrchestratorAssessment))
+		if _, ok := BlockedRecoveryCapped(state, c); ok {
+			t.Fatal("released episode still capped")
+		}
+		if got := BlockedEpisodeAt(c); !got.Equal(episode) {
+			t.Fatalf("episode moved to %s, want %s", got, episode)
+		}
+		if transition, classified := IsStatusTransitionEvent(TaskEventBlockedRecoveryReleased); transition || !classified {
+			t.Fatalf("IsStatusTransitionEvent = (%v, %v), want (false, true)", transition, classified)
+		}
+	})
+
+	t.Run("a later status transition ends the release", func(t *testing.T) {
+		for name, tail := range map[string][]TaskHistoryEntry{
+			"re-block":              {at(5, TaskEventBlockedRecoveryReleased), at(7, TaskEventBlocked)},
+			"failed fresh":          {at(5, TaskEventBlockedRecoveryReleased), at(7, TaskEventRecoveryFreshFailed)},
+			"unblock then re-block": {at(5, TaskEventBlockedRecoveryReleased), at(6, TaskEventUnblocked), at(7, TaskEventBlocked)},
+		} {
+			t.Run(name, func(t *testing.T) {
+				state := capped()
+				c := state.FindTask("c")
+				c.History = append(c.History, tail...)
+				if _, ok := BlockedRecoveryCapped(state, c); !ok {
+					t.Fatal("release outlived its episode")
+				}
+			})
+		}
+	})
+
+	t.Run("a release before any recorded episode never releases", func(t *testing.T) {
+		state := capped()
+		c := state.FindTask("c")
+		c.History = []TaskHistoryEntry{at(5, TaskEventBlockedRecoveryReleased)}
+		if BlockedRecoveryReleased(state, c) {
+			t.Fatal("released without a blocked episode")
+		}
+		if _, ok := BlockedRecoveryCapped(state, c); !ok {
+			t.Fatal("task without an episode not capped")
+		}
+	})
+}

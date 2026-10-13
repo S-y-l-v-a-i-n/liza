@@ -2,7 +2,10 @@
 
 ## Status
 
-ACCEPTED — 2026-10-01.
+ACCEPTED — 2026-10-01. Amended by
+[ADR-0208](0208-operator-release-of-capped-blocked-lineage.md): an operator
+`release-blocked-chain` also releases one blocked episode, without pausing the
+run.
 
 ## Context
 
