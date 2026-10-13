@@ -14,6 +14,22 @@ import (
 	"github.com/liza-mas/liza/internal/testhelpers"
 )
 
+func TestMain(m *testing.M) {
+	// Never launch the real Semble from tests that remove worktrees.
+	clearSembleOrphans = func() {}
+	os.Exit(m.Run())
+}
+
+// countSembleOrphanClears replaces the Semble orphan-clear seam with a counter.
+func countSembleOrphanClears(t *testing.T) *int {
+	t.Helper()
+	calls := 0
+	previous := clearSembleOrphans
+	clearSembleOrphans = func() { calls++ }
+	t.Cleanup(func() { clearSembleOrphans = previous })
+	return &calls
+}
+
 // setupTestRepo creates a test git repository with an integration branch
 func setupTestRepo(t *testing.T) string {
 	t.Helper()
@@ -199,6 +215,43 @@ func TestRemoveWorktreeNotExists(t *testing.T) {
 	err := git.RemoveWorktree("task-nonexistent")
 	if err != nil {
 		t.Errorf("RemoveWorktree() on non-existent worktree error = %v, want nil", err)
+	}
+}
+
+func TestRemoveWorktreeDirClearsSembleOrphans(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	g := New(repoDir)
+	calls := countSembleOrphanClears(t)
+
+	if _, err := g.CreateWorktree("task-123", "integration"); err != nil {
+		t.Fatalf("CreateWorktree() error = %v", err)
+	}
+	if err := g.RemoveWorktreeDir("task-123"); err != nil {
+		t.Fatalf("RemoveWorktreeDir() error = %v", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("Semble orphan clears after removal = %d, want 1", *calls)
+	}
+
+	// An already-absent directory may still have left an orphaned index.
+	if err := g.RemoveWorktreeDir("task-123"); err != nil {
+		t.Fatalf("RemoveWorktreeDir() on absent worktree error = %v", err)
+	}
+	if *calls != 2 {
+		t.Fatalf("Semble orphan clears after absent removal = %d, want 2", *calls)
+	}
+}
+
+func TestRemoveWorktreeDirFailureSkipsSembleOrphanClear(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	g := New(repoDir)
+	calls := countSembleOrphanClears(t)
+
+	if err := g.RemoveWorktreeDir("../escape"); err == nil {
+		t.Fatal("RemoveWorktreeDir() with invalid task ID error = nil, want error")
+	}
+	if *calls != 0 {
+		t.Fatalf("Semble orphan clears after failed removal = %d, want 0", *calls)
 	}
 }
 

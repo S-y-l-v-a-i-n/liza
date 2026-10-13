@@ -284,6 +284,37 @@ func PlanCommands(opts CommandPlanOptions) PlanResult {
 	}
 }
 
+// StartClearOrphans launches a detached `semble clear orphans`, which drops
+// cached indexes whose source path no longer exists, such as deleted task
+// worktrees, and returns without waiting. Semble's cache is per user, so this
+// also clears orphans outside the current project. It does nothing when Semble
+// is disabled or not installed.
+func StartClearOrphans(lookPath ExecutableLookup) error {
+	if !RuntimeEnabled() {
+		return nil
+	}
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	executablePath, err := lookPath(sembleExecutableName)
+	if err != nil {
+		return nil
+	}
+	// Nil standard streams use the null device. The caller's working directory
+	// may be the worktree just removed.
+	cmd := exec.Command(executablePath, "clear", "orphans")
+	cmd.Dir = os.TempDir()
+	cmd.Env = append(os.Environ(), "HF_HUB_OFFLINE=1")
+	subprocess.SetDetachedProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start semble clear orphans: %w", err)
+	}
+	// A long-lived supervisor must reap the child; a CLI that exits first
+	// leaves it to be adopted by init.
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 // DefaultValidationFixtureIdentity returns the package-owned fixture identity
 // shared by prewarm and offline validation planning.
 func DefaultValidationFixtureIdentity() FixtureIdentity {

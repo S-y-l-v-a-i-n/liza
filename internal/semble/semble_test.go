@@ -3,8 +3,10 @@ package semble
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -773,6 +775,68 @@ func TestPromptMetadataShellQuotesTargetRoot(t *testing.T) {
 	quotedRoot := "'" + strings.ReplaceAll(filepath.Clean(targetRoot), "'", "'\\''") + "'"
 	if metadata.ShellTargetRoot != quotedRoot {
 		t.Fatalf("ShellTargetRoot = %q, want %q", metadata.ShellTargetRoot, quotedRoot)
+	}
+}
+
+func TestStartClearOrphansDisabledSkipsLookup(t *testing.T) {
+	unsetEnvForTest(t, EnvEnableSemble)
+
+	err := StartClearOrphans(func(string) (string, error) {
+		t.Fatal("executable lookup called while Semble is disabled")
+		return "", nil
+	})
+	if err != nil {
+		t.Fatalf("StartClearOrphans() error = %v, want nil", err)
+	}
+}
+
+func TestStartClearOrphansMissingExecutableIsNoOp(t *testing.T) {
+	t.Setenv(EnvEnableSemble, "1")
+
+	err := StartClearOrphans(func(string) (string, error) {
+		return "", errors.New("not found")
+	})
+	if err != nil {
+		t.Fatalf("StartClearOrphans() error = %v, want nil", err)
+	}
+}
+
+func TestStartClearOrphansRunsDetachedOfflineCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable is a POSIX shell script")
+	}
+	t.Setenv(EnvEnableSemble, "1")
+	dir := t.TempDir()
+	// Reading the FIFO blocks until the detached child writes, so no polling.
+	marker := filepath.Join(dir, "marker")
+	if out, err := exec.Command("mkfifo", marker).CombinedOutput(); err != nil {
+		t.Fatalf("mkfifo error = %v: %s", err, out)
+	}
+	// The marker path travels through the environment so TMPDIR spaces or
+	// quotes cannot split it.
+	t.Setenv("FAKE_SEMBLE_MARKER", marker)
+	script := filepath.Join(dir, "semble")
+	content := "#!/bin/sh\nprintf '%s HF_HUB_OFFLINE=%s\\n' \"$*\" \"$HF_HUB_OFFLINE\" > \"$FAKE_SEMBLE_MARKER\"\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatalf("WriteFile(fake semble) error = %v", err)
+	}
+
+	got := make(chan string, 1)
+	go func() {
+		data, _ := os.ReadFile(marker)
+		got <- string(data)
+	}()
+	if err := StartClearOrphans(fixedLookPath(script)); err != nil {
+		t.Fatalf("StartClearOrphans() error = %v", err)
+	}
+
+	select {
+	case invocation := <-got:
+		if want := "clear orphans HF_HUB_OFFLINE=1\n"; invocation != want {
+			t.Fatalf("fake semble invocation = %q, want %q", invocation, want)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("fake semble was not run")
 	}
 }
 

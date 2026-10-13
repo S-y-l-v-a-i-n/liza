@@ -14,7 +14,11 @@ import (
 	"github.com/liza-mas/liza/internal/filelock"
 	"github.com/liza-mas/liza/internal/gitenv"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/semble"
 )
+
+// clearSembleOrphans drops the Semble index of a removed worktree; a test seam.
+var clearSembleOrphans = func() { _ = semble.StartClearOrphans(nil) }
 
 const maxProgressSignatureFileBytes = 1 << 20
 const worktreeMutationLockTimeout = 30 * time.Minute
@@ -115,7 +119,7 @@ func (g *Git) RemoveWorktreeDir(taskID string) error {
 	if err := paths.ValidateTaskID(taskID); err != nil {
 		return fmt.Errorf("invalid task ID: %w", err)
 	}
-	return g.withWorktreeMutationLock("worktree-remove", func() error {
+	err := g.withWorktreeMutationLock("worktree-remove", func() error {
 		worktreePath := filepath.Join(g.projectRoot, paths.WorktreesDirName, taskID)
 		metadataDir := filepath.Join(g.projectRoot, paths.GitDirName, "worktrees", taskID)
 
@@ -137,6 +141,11 @@ func (g *Git) RemoveWorktreeDir(taskID string) error {
 		_ = os.RemoveAll(metadataDir)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	clearSembleOrphans()
+	return nil
 }
 
 // RemoveWorktree removes a worktree and its associated branch.

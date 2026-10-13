@@ -756,6 +756,10 @@ orchestrator may search the project root only when runtime and worktree
 exclusions make that root safe. §BRAND_NAME_TITLE§ should prefer local paths over remote Git
 URL indexing for MAS.
 
+After removing a task worktree, §BRAND_NAME_TITLE§ starts a detached, best-effort
+`semble clear orphans` so deleted worktree indexes do not accumulate. Semble's
+cache is per user, so this also clears orphaned indexes of other projects.
+
 Semble reads physical `.sembleignore` files while walking directories.
 `.sembleignore` is directory-scoped, not global, so a task worktree needs its
 own file before Semble is advertised there. Git private excludes hide generated
