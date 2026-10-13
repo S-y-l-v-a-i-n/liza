@@ -354,6 +354,10 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   indexes. Output indexes do not transfer to a replacement, so every consumer that selects a retired child
   re-blocks. Name those consumers in the relay, or prefer a route that does not supersede (for example a
   budget exception at unblock).
+- **You break it, you fix it** — whatever an operator action damages, repair it at once and report
+  afterwards; do not wait for approval to undo your own mistake.
+- **`analyze` is not an observation** — while a breaker pattern is pending it applies the HALT response,
+  so watch rounds never run it.
 - **Clean state is not recovery evidence** — if a task was BLOCKED, rejected repeatedly,
   superseded, abandoned, integration-failed, or recovered after multiple agent attempts, analyze the
   involved agent logs with `/§BRAND_BINARY_NAME§-logs` before reassigning. If the same failure mode
