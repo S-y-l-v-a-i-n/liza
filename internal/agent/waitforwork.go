@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,15 @@ func nonZeroOr(val, fallback int) int {
 	}
 	return fallback
 }
+
+// errPoolSurplus ends a wait because the agent's role is over its
+// max-instances and the agent holds no in-flight work; the supervisor then
+// tries to retire it under the state lock.
+var errPoolSurplus = errors.New("agent role over max-instances")
+
+// surplusCheckFunc reports, on a state snapshot, whether the waiting agent is
+// surplus to its role. Nil disables the check.
+type surplusCheckFunc func(*models.State) bool
 
 // workCheckFunc checks if work is available for an agent role.
 // Returns (hasWork, logMessage). If logMessage is non-empty, it will be printed when work is found.
@@ -63,6 +73,7 @@ func waitForWorkEventDriven(
 	projectRoot string,
 	pollInterval, maxWait time.Duration,
 	checkWork workCheckFunc,
+	surplus surplusCheckFunc,
 ) (bool, error) {
 	logger := GetLogger()
 
@@ -88,6 +99,9 @@ func waitForWorkEventDriven(
 		logger.Info("ABORT detected", "reason", reason)
 		return false, nil
 	}
+	if surplus != nil && surplus(state) {
+		return false, errPoolSurplus
+	}
 
 	if hasWork, logMsg := checkWork(state); hasWork {
 		if logMsg != "" {
@@ -103,7 +117,7 @@ func waitForWorkEventDriven(
 	watcher, err := newStateWatcher(bb)
 	if err != nil {
 		// Fallback to polling if watcher fails
-		return waitForWorkPolling(ctx, bb, projectRoot, pollInterval, maxWait, checkWork)
+		return waitForWorkPolling(ctx, bb, projectRoot, pollInterval, maxWait, checkWork, surplus)
 	}
 	defer watcher.Close()
 
@@ -130,6 +144,9 @@ func waitForWorkEventDriven(
 				logger.Info("ABORT detected", "reason", reason)
 				return false, nil
 			}
+			if surplus != nil && surplus(state) {
+				return false, errPoolSurplus
+			}
 			// Also check for work: covers the TOCTOU race where state
 			// changed between the initial check and watcher setup.
 			if hasWork, logMsg := checkWork(state); hasWork {
@@ -153,6 +170,9 @@ func waitForWorkEventDriven(
 				logger.Info("ABORT detected", "reason", reason)
 				return false, nil
 			}
+			if surplus != nil && surplus(state) {
+				return false, errPoolSurplus
+			}
 
 			if hasWork, logMsg := checkWork(state); hasWork {
 				if logMsg != "" {
@@ -172,7 +192,7 @@ func waitForWorkEventDriven(
 			// Watcher error, fallback to polling
 			logger.Warn("Watcher error, falling back to polling", "error", err)
 			watcher.Close()
-			return waitForWorkPolling(ctx, bb, projectRoot, pollInterval, maxWait, checkWork)
+			return waitForWorkPolling(ctx, bb, projectRoot, pollInterval, maxWait, checkWork, surplus)
 
 		case <-deadlineTimer.C:
 			return false, nil
@@ -188,6 +208,7 @@ func waitForWorkPolling(
 	projectRoot string,
 	pollInterval, maxWait time.Duration,
 	checkWork workCheckFunc,
+	surplus surplusCheckFunc,
 ) (bool, error) {
 	logger := GetLogger()
 	deadline := time.Now().Add(maxWait)
@@ -208,6 +229,9 @@ func waitForWorkPolling(
 			if stopped, reason := isSystemStopped(state); stopped {
 				logger.Info("ABORT detected", "reason", reason)
 				return false, nil
+			}
+			if surplus != nil && surplus(state) {
+				return false, errPoolSurplus
 			}
 
 			if hasWork, logMsg := checkWork(state); hasWork {

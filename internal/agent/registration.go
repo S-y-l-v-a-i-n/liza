@@ -101,43 +101,8 @@ func registerAgentLocked(bb *db.Blackboard, projectRoot, agentID, role, terminal
 			if err == nil {
 				maxInst := models.EffectiveMaxInstances(roleMax, state.Config.MaxInstances)
 				roleType, _ := resolver.RoleType(role)
-				agentIDs := make([]string, 0, len(state.Agents))
-				for id := range state.Agents {
-					agentIDs = append(agentIDs, id)
-				}
-				sort.Strings(agentIDs)
-
-				occupiedCount := 0
-				var occupiedDetails []string
-				for _, id := range agentIDs {
-					if id == agentID {
-						continue
-					}
-					agent := state.Agents[id]
-					matchesRole := agent.Role == role
-					if roleType == "orchestrator" {
-						resolvedType, resolveErr := resolver.RoleType(agent.Role)
-						matchesRole = resolveErr == nil && resolvedType == "orchestrator"
-					}
-					if !matchesRole {
-						continue
-					}
-					if roleType == "orchestrator" {
-						observation := ops.AgentProcessOwnership(id, agent, now, livenessWindow)
-						if !observation.Occupied() {
-							continue
-						}
-						occupiedCount++
-						occupiedDetails = append(occupiedDetails, fmt.Sprintf("%s: %s", id, observation.Diagnostic(agent.PID)))
-						continue
-					}
-					observation := ops.AgentProcessOwnership(id, agent, now, livenessWindow)
-					if !observation.Occupied() {
-						continue
-					}
-					occupiedCount++
-					occupiedDetails = append(occupiedDetails, fmt.Sprintf("%s: %s", id, observation.Diagnostic(agent.PID)))
-				}
+				occupiedDetails := occupiedRolePeers(state, resolver, role, roleType, agentID, now, livenessWindow)
+				occupiedCount := len(occupiedDetails)
 				if occupiedCount >= maxInst {
 					if roleType == "orchestrator" {
 						return fmt.Errorf("type orchestrator already has %d live agent(s); only %d instance(s) allowed; %s",
@@ -196,6 +161,124 @@ func registerAgentLocked(bb *db.Blackboard, projectRoot, agentID, role, terminal
 	return authority, nil
 }
 
+// occupiedRolePeers returns a diagnostic for each registration other than
+// selfID that holds capacity for role, in ID order. Orchestrator roles count
+// by resolved type, so different orchestrator role keys share one cap; other
+// roles count by role key. Occupancy is lease-first (AgentProcessOwnership),
+// so a leased registration whose process died still holds its slot.
+func occupiedRolePeers(state *models.State, resolver *pipeline.Resolver, role, roleType, selfID string, now time.Time, livenessWindow time.Duration) []string {
+	agentIDs := make([]string, 0, len(state.Agents))
+	for id := range state.Agents {
+		agentIDs = append(agentIDs, id)
+	}
+	sort.Strings(agentIDs)
+
+	var occupied []string
+	for _, id := range agentIDs {
+		if id == selfID {
+			continue
+		}
+		agent := state.Agents[id]
+		matchesRole := agent.Role == role
+		if roleType == "orchestrator" {
+			resolvedType, resolveErr := resolver.RoleType(agent.Role)
+			matchesRole = resolveErr == nil && resolvedType == "orchestrator"
+		}
+		if !matchesRole {
+			continue
+		}
+		observation := ops.AgentProcessOwnership(id, agent, now, livenessWindow)
+		if !observation.Occupied() {
+			continue
+		}
+		occupied = append(occupied, fmt.Sprintf("%s: %s", id, observation.Diagnostic(agent.PID)))
+	}
+	return occupied
+}
+
+// poolSurplus reports whether agentID should leave its role's pool: the role
+// is not an orchestrator, its other live registrations already fill the
+// effective max-instances, and the agent holds no in-flight ownership.
+// In-flight ownership is a current task, an executing (or handoff) doer
+// assignment, rejected rework under an unexpired lease (reserved for this
+// agent), any review claim, or a pending approved merge it owns. Retained
+// attribution on submitted, approved or terminal tasks does not pin capacity:
+// retirement releases it exactly as an idle exit does. A nil resolver or an
+// unresolvable role fails closed.
+func poolSurplus(state *models.State, resolver *pipeline.Resolver, agentID string, now time.Time) bool {
+	if state == nil || resolver == nil {
+		return false
+	}
+	agent, ok := state.Agents[agentID]
+	if !ok || (agent.CurrentTask != nil && *agent.CurrentTask != "") {
+		return false
+	}
+	roleType, err := resolver.RoleType(agent.Role)
+	if err != nil || roleType == "orchestrator" {
+		return false
+	}
+	roleMax, err := resolver.MaxInstances(agent.Role)
+	if err != nil {
+		return false
+	}
+	// Count peers first: it is the cheap test, and waiting agents evaluate
+	// this on every state read.
+	peers := occupiedRolePeers(state, resolver, agent.Role, roleType, agentID, now, models.AgentLivenessWindow(state.Config))
+	if len(peers) < models.EffectiveMaxInstances(roleMax, state.Config.MaxInstances) {
+		return false
+	}
+	for i := range state.Tasks {
+		task := &state.Tasks[i]
+		if task.ReviewingBy != nil && *task.ReviewingBy == agentID {
+			return false
+		}
+		if task.AssignedTo == nil || *task.AssignedTo != agentID {
+			continue
+		}
+		if models.IsExecutingStatus(task, resolver) {
+			return false
+		}
+		if rejected, err := resolver.RejectedStatus(task.RolePair); err == nil && task.Status == rejected &&
+			task.LeaseExpires != nil && task.LeaseExpires.After(now) {
+			return false
+		}
+	}
+	return ownedPendingMergeFingerprint(state, agentID, resolver) == ""
+}
+
+// releaseIfSurplus retires the agent when poolSurplus holds under the state
+// lock: in one generation-fenced transaction it re-evaluates the predicate on
+// the locked state and, if still true, applies the same release-and-remove
+// mutation as unregisterAgent. Serial transactions mean each surplus decision
+// sees the removals before it, so concurrent retirements cannot take a role
+// below its cap. Returns false with state unchanged when the agent is not
+// surplus. resolver is the caller's, so the locked recheck evaluates the
+// same pipeline as the caller's snapshot check.
+func releaseIfSurplus(bb *db.Blackboard, authority models.AgentAuthority, resolver *pipeline.Resolver) (bool, error) {
+	if resolver == nil {
+		return false, nil
+	}
+	pipelineTransitions := ops.BuildPipelineTransitions(resolver)
+	released := false
+	err := ops.ModifyWithAgentAuthority(bb, authority, func(state *models.State) error {
+		// Read the clock under the lock: a peer whose lease expired while this
+		// call waited must not count toward the cap.
+		now := time.Now().UTC()
+		if !poolSurplus(state, resolver, authority.ID, now) {
+			return nil
+		}
+		if err := unregisterInState(state, authority.ID, pipelineTransitions, resolver, now); err != nil {
+			return err
+		}
+		released = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
 // AutoAssignAgentID reads state, picks the first available <role>-N, and calls
 // tryFn with the candidate ID. On AgentCollisionError, it re-reads state and
 // retries (up to maxRetries). Returns the assigned ID or the first non-collision error.
@@ -239,36 +322,41 @@ func unregisterAgent(bb *db.Blackboard, authority models.AgentAuthority, project
 	pipelineTransitions, resolver := loadPipelineForRelease(projectRoot)
 
 	err := ops.ModifyWithAgentAuthority(bb.Patient(), authority, func(state *models.State) error {
-		agent, exists := state.Agents[agentID]
-		if !exists {
-			return nil
-		}
-
-		// Release task claims from both agent-side and task-side ownership.
-		taskIDs := make(map[string]bool)
-		if agent.CurrentTask != nil {
-			taskIDs[*agent.CurrentTask] = true
-		}
-		doerTaskIDs, reviewerTaskIDs := ops.TaskClaimsForAgent(state, agentID)
-		for _, taskID := range doerTaskIDs {
-			taskIDs[taskID] = true
-		}
-		for _, taskID := range reviewerTaskIDs {
-			taskIDs[taskID] = true
-		}
-		for taskID := range taskIDs {
-			if task := state.FindTask(taskID); task != nil {
-				if err := releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now); err != nil {
-					return err
-				}
-			}
-		}
-
-		delete(state.Agents, agentID)
-		return nil
+		return unregisterInState(state, agentID, pipelineTransitions, resolver, now)
 	})
 
 	return err
+}
+
+// unregisterInState releases every claim the agent holds, agent-side and
+// task-side, then removes its row. It runs inside the caller's transaction.
+func unregisterInState(state *models.State, agentID string, pipelineTransitions map[models.TaskStatus][]models.TaskStatus, resolver *pipeline.Resolver, now time.Time) error {
+	agent, exists := state.Agents[agentID]
+	if !exists {
+		return nil
+	}
+
+	taskIDs := make(map[string]bool)
+	if agent.CurrentTask != nil {
+		taskIDs[*agent.CurrentTask] = true
+	}
+	doerTaskIDs, reviewerTaskIDs := ops.TaskClaimsForAgent(state, agentID)
+	for _, taskID := range doerTaskIDs {
+		taskIDs[taskID] = true
+	}
+	for _, taskID := range reviewerTaskIDs {
+		taskIDs[taskID] = true
+	}
+	for taskID := range taskIDs {
+		if task := state.FindTask(taskID); task != nil {
+			if err := releaseTaskClaim(state, task, agent.Role, agentID, pipelineTransitions, resolver, now); err != nil {
+				return err
+			}
+		}
+	}
+
+	delete(state.Agents, agentID)
+	return nil
 }
 
 // releaseTaskClaim transitions a task back to its unclaimed status and clears

@@ -763,7 +763,7 @@ func TestWaitForWorkPollingAbortStateMode(t *testing.T) {
 	started := make(chan struct{})
 	go func() {
 		close(started)
-		hasWork, err := waitForWorkPolling(ctx, bb, tmpDir, 50*time.Millisecond, 5*time.Second, checkWork)
+		hasWork, err := waitForWorkPolling(ctx, bb, tmpDir, 50*time.Millisecond, 5*time.Second, checkWork, nil)
 		if err != nil {
 			errCh <- err
 			return

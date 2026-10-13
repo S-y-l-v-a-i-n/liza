@@ -65,7 +65,9 @@ agent is refused):
   config.reviewer_max_wait  seconds an idle reviewer waits before leaving the
                             pool (minimum 300, default 600 for each wait)
 Replacing a different value needs --replace and --reason, as above. A changed
-wait applies to agents started afterwards; running ones keep theirs.
+wait applies to agents started afterwards; running ones keep theirs. A lowered
+max_instances applies to running agents: each one over the cap retires at its
+next task boundary once it holds no in-flight work.
 
 config.await_poll_interval takes positive seconds (default 10 when unset)
 and is operator-only. It controls periodic checks and fallback polling for

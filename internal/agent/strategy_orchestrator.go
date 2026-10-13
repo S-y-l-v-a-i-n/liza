@@ -204,7 +204,7 @@ func (s *orchestratorStrategy) WaitForWork(ctx context.Context, bb *db.Blackboar
 				return false, fmt.Sprintf("Orchestrator stable integration outcome: %s (%s)", result.Trigger, result.Integration.ReasonCode)
 			}
 			return false, ""
-		})
+		}, nil)
 }
 
 func (s *orchestratorStrategy) ClaimTask(_ SupervisorConfig, _ *db.Blackboard) (string, string, error) {

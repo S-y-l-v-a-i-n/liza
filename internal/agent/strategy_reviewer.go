@@ -226,7 +226,7 @@ func (s *reviewerStrategy) awaitPendingMergeWake(ctx context.Context, bb *db.Bla
 				return true, ""
 			}
 			return false, ""
-		})
+		}, nil)
 }
 
 // recordPendingMergeStall leaves durable evidence that automatic merge
@@ -320,7 +320,7 @@ func (s *reviewerStrategy) WaitForWork(ctx context.Context, bb *db.Blackboard, c
 				return false, models.GetReviewerWorkDiagnostics(state, pr)
 			}
 			return false, fmt.Sprintf("No %s-reviewable tasks", s.role)
-		})
+		}, config.poolSurplus)
 }
 
 // reviewSlots returns the role's models.yaml selection, which binds claims

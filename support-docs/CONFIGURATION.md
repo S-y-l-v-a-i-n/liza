@@ -462,7 +462,7 @@ are loaded at runtime from the provider catalog.
 | `max_review_cycles` | 5 | 1 | 20 | count | Max review rejection cycles |
 | `high_churn_rejection_threshold` | 4 | 1 | 100 | count | Durable rejections per RCA gate cycle, across all reviewed task types |
 | `max_global_integration_generations` | 3 | 1 | — | count | Max aggregate integration scans before exhaustion |
-| `max_instances` | 3 | 1 | — | count | Live agents per non-orchestrator role without its own pipeline `max-instances`; enforced at registration and used as the auto-repair pool cap |
+| `max_instances` | 3 | 1 | — | count | Live agents per non-orchestrator role without its own pipeline `max-instances`; enforced at registration, used as the auto-repair pool cap, and lowering it retires surplus agents |
 | `heartbeat_interval` | 60 | 1 | 300 | seconds | Heartbeat frequency |
 | `lease_duration` | 1800 | 300 | 7200 | seconds | Task lease duration |
 | `coder_poll_interval` | 30 | 5 | 120 | seconds | Check interval (legacy, now event-driven) |
@@ -1399,6 +1399,7 @@ The pool shrinks on its own: an idle doer or reviewer supervisor exits after `do
 - Cap: a role's own `max-instances` in the pipeline wins; otherwise `max_instances` (set with `§BRAND_BINARY_NAME§ init --max-instances <n>`, default 3). The orchestrator is always capped at 1.
 - After init: `§BRAND_BINARY_NAME§ config set config.max_instances <n>`, `config.doer_max_wait <seconds>` or `config.reviewer_max_wait <seconds>`. These keys are operator-only, and replacing a set value needs `--replace --reason`.
 - A changed wait applies to supervisors started afterwards; running ones keep the wait they read at start.
+- A lowered cap applies to running agents: a doer or reviewer over its role's cap retires at its next task boundary, even if work is waiting, once it holds no in-flight work (current task, executing or handoff assignment, rejected rework under its lease, review claim, or pending merge it owns). Retirement releases its other assignments as an idle exit does, and never takes the role below the cap. The orchestrator is not affected.
 - Workspaces initialized before pool sizing keep their stored `doer_max_wait` / `reviewer_max_wait` (often 18000) and get the default cap of 3 per role; lower the waits with `config set` to let idle agents leave.
 
 ### Validation execution prerequisites

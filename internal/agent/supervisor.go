@@ -37,6 +37,9 @@ type SupervisorConfig struct {
 	// without observable state, worktree, or provider-output progress.
 	ExecutionProgressTimeout time.Duration
 	sessionActivity          *providerSessionActivity
+	// poolSurplus is set after registration for non-orchestrator roles; a
+	// waiting strategy that passes it returns errPoolSurplus when it holds.
+	poolSurplus surplusCheckFunc
 }
 
 var waitWhilePausedForSupervisor = waitWhilePaused
@@ -643,8 +646,18 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 	// orchestrator repairs hooks; a rejected duplicate launch never gets here.
 	if roleType == "orchestrator" {
 		ensureProjectRootIndexActivation(bb, config.ProjectRoot)
+	} else {
+		config.poolSurplus = func(state *models.State) bool {
+			return poolSurplus(state, resolver, authority.ID, time.Now().UTC())
+		}
 	}
+	// retired is set once releaseIfSurplus has removed this registration; the
+	// deferred unregister would then fail its authority check on the missing row.
+	retired := false
 	defer func() {
+		if retired {
+			return
+		}
 		// Shutdown cleanup has an independent bounded context.
 		cleanupBB, cancelCleanup := supervisorCleanupBlackboard(config.StatePath)
 		defer cancelCleanup()
@@ -705,6 +718,24 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 		case <-timer.C:
 			return nil
 		}
+	}
+
+	// retireIfSurplus removes this registration when the role is over its
+	// max-instances and the agent holds no in-flight work. A failed check
+	// leaves the registration and claims untouched, so the agent stays.
+	retireIfSurplus := func() bool {
+		if config.poolSurplus == nil {
+			return false
+		}
+		released, err := releaseIfSurplus(bb, authority, resolver)
+		if err != nil {
+			GetLogger().Warn("Surplus retirement check failed; staying in pool", "error", err, "agent_id", config.AgentID)
+			return false
+		}
+		if released {
+			GetLogger().Info("Role over max-instances, supervisor exiting", "agent_id", config.AgentID, "role", config.Role)
+		}
+		return released
 	}
 
 	pollInterval, maxWait := strategy.WaitConfig(state)
@@ -769,8 +800,22 @@ func RunSupervisor(ctx context.Context, config SupervisorConfig) error {
 			continue
 		}
 
-		// Wait for work
+		// Wait for work. Each task boundary passes through here, and the wait
+		// checks surplus before work on every state read, so a surplus agent
+		// retires instead of claiming even when work is waiting.
 		hasWork, err := strategy.WaitForWork(supervisorCtx, bb, config, pollInterval, maxWait)
+		if errors.Is(err, errPoolSurplus) {
+			if retired = retireIfSurplus(); retired {
+				return nil
+			}
+			// The locked recheck disagreed with the snapshot (a peer left or the
+			// cap rose meanwhile); pace the retry so a persistent disagreement
+			// cannot spin.
+			if err := waitForSupervisorDelay(5 * time.Second); err != nil {
+				return err
+			}
+			continue
+		}
 		if err != nil {
 			if hbErr := checkHeartbeat(); hbErr != nil {
 				return hbErr

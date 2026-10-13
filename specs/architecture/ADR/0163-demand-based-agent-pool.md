@@ -3,6 +3,8 @@
 ## Status
 
 ACCEPTED — 2026-09-29. Closes GitHub issue #169.
+Amended by [ADR-0205](0205-surplus-supervisors-self-release.md): a surplus
+supervisor retires itself when the cap drops.
 
 ## Context
 

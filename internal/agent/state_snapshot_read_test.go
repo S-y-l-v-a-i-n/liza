@@ -176,7 +176,7 @@ func TestWaitForWorkPollingReadsStateWhileLockHeld(t *testing.T) {
 	testhelpers.HoldFileLock(t, statePath)
 
 	hasWork, err := waitForWorkPolling(context.Background(), bb, tmpDir, 20*time.Millisecond, 5*time.Second,
-		func(*models.State) (bool, string) { return true, "" })
+		func(*models.State) (bool, string) { return true, "" }, nil)
 	if err != nil || !hasWork {
 		t.Fatalf("waitForWorkPolling under a held state lock: hasWork=%v err=%v", hasWork, err)
 	}

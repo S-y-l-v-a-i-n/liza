@@ -98,7 +98,7 @@ func (s *doerStrategy) WaitForWork(ctx context.Context, bb *db.Blackboard, confi
 			}
 
 			return claimable > 0 || resumableHandoffs > 0 || resumableOwned > 0, logMsg
-		})
+		}, config.poolSurplus)
 }
 
 func (s *doerStrategy) ClaimTask(config SupervisorConfig, bb *db.Blackboard) (string, string, error) {
