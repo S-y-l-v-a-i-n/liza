@@ -59,6 +59,35 @@ time and at every join.
 **Payback trigger:** a run where an additive seam was weighed against the full
 writer count and rejected, and the non-commuting chain still binds throughput.
 
+## A merge whose base moved lands a composed tree no validation executed
+
+**What:** `performCASMerge` merges the approved commit into a moved integration
+HEAD with `merge-tree`. Admission evidence covers the review commit's tree;
+the composed tree is checked only by the optional `scripts/integration-test.sh`.
+Two unordered writers that each replace one whole definition in different files
+compose without a Git conflict, and the later one silently drops the earlier
+one's change (D-96, observed once: a cap-002-21 dispatcher migration merged over
+16-3's and removed its two read arms). Replaying the merging task's receipt
+would not have caught it: the suite covering the dropped behavior was deferred
+(ADR-0204), and only the other task's focused test exercised it. The ordering
+edge between the two writers was never planned; no engine rewrite dropped it.
+
+**Why deferred:** the prevention that would have caught it re-runs, on the
+composed tree, the executed admission commands of the merging task and of every
+task merged since its base. It costs about 20 minutes per intervening task on
+every merge whose base moved, which is most merges in a parallel run. That is a
+systematic delay against a loss seen once, recovered in hours. Prevention
+belongs to planning (ADR-0201 `commuting-edits` and `seam-reassessment`), and
+the deferred-validation batch detects the loss after landing and bisects to the
+culprit merge; `deferred_validation.batch_every_merges` narrows that window
+without code.
+
+**Payback trigger:** a second clean-merge semantic loss in a run that applies
+ADR-0201 planning and has deferred-validation batches recording verdicts.
+Upgrade path: the re-validation above, run on the merge candidate outside the
+locks with a compare-and-swap update only if HEAD is unchanged, and a cap on
+intervening tasks above which the merge falls back to the batch.
+
 ## Agent deletion and reviewer diversity read a lease-less registration as gone
 
 **What:** Two agent-liveness readers still use the lease alone, not
