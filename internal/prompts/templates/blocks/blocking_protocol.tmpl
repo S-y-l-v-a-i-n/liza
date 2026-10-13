@@ -3,6 +3,9 @@
 BLOCKING PROTOCOL:
 Required fields: blocked_reason (what's blocking + what you attempted), blocked_questions (1-3 specific questions)
 blocked_reason is a compact diagnosis: the observed failure, its source or command evidence, the owning role, the smallest missing decision or deliverable, what work is preserved, and the observable closure. Name affected consumers and independent work that can continue when known. A clear source contradiction or an inaccessible tool needs no root-cause proof.
+{{- if eq .Role "coder"}}
+If you could close the gap yourself with a bounded change outside your scope (test support, fixtures, your own constants; no production or contract change), name the files, the change and what stays unchanged: the orchestrator may grant it as a scope exception.
+{{- end}}
 If a CLI command, git command, or tool invocation is the blocker, blocked_reason MUST include the exact failing command and the observed stderr/error text. Do NOT speculate about root cause without captured failure output.
 If a concrete task that pipeline direction allows as a prerequisite is blocking this task, include it as a structural dependency on {{binaryName}} mark-blocked:
   --depends-on "<blocking-task-id>"

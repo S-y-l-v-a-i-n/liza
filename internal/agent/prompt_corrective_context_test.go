@@ -168,3 +168,56 @@ func TestTaskCorrectiveContextSeenFlagsAndProvenance(t *testing.T) {
 		t.Fatal("empty source should not add corrective context")
 	}
 }
+
+func TestTaskCorrectiveContextScopeExceptions(t *testing.T) {
+	at := time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC)
+	orchestrator, operator := "orchestrator-1", "operator"
+	history := []models.TaskHistoryEntry{
+		{Time: at, Event: models.TaskEventUnblocked, Agent: &orchestrator, Extra: map[string]any{"scope_exception": map[string]any{
+			"files": []string{"tests/support/conftest.py"}, "change": "add a pg_locks observer", "unchanged": "production SQL and acceptance",
+		}}},
+		{Time: at.Add(time.Hour), Event: models.TaskEventUnblocked, Agent: &operator, Extra: map[string]any{"scope_exception": map[string]any{
+			"files": []any{"tests/fixtures/seed.py", "tests/fixtures/transport.py"}, "change": "allow the holder read", "unchanged": "mutation rejection",
+		}}},
+	}
+	for _, role := range []string{"coder", "code-reviewer"} {
+		t.Run(role, func(t *testing.T) {
+			state := testhelpers.CreateValidState()
+			state.Tasks = []models.Task{{ID: "task-7", Status: models.TaskStatusImplementing, Iteration: 1, History: history}}
+			output, err := testBuildPrompt(t, state, SupervisorConfig{Role: role, AgentID: role + "-1", ProjectRoot: t.TempDir()}, "task-7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Canonical acceptance, provider dependencies, review boundary and lifecycle gates are unchanged.\n",
+				"Scope is unchanged except that an authorized scope exception below adds the files it names.",
+				"AUTHORIZED SCOPE EXCEPTION — 2026-10-13T09:00:00Z by orchestrator-1",
+				"Files: tests/fixtures/seed.py, tests/fixtures/transport.py",
+				"Unchanged: production SQL and acceptance",
+				"Reviewer: changes to its files within its stated change are in scope",
+			} {
+				if !strings.Contains(output, want) {
+					t.Errorf("%s prompt missing %q", role, want)
+				}
+			}
+			if strings.Contains(output, "Scope, canonical acceptance") {
+				t.Error("an exception must not qualify the acceptance, provider, review or lifecycle boundary")
+			}
+			if strings.Index(output, "add a pg_locks observer") > strings.Index(output, "allow the holder read") {
+				t.Error("exceptions must render oldest first")
+			}
+		})
+	}
+	state := &models.State{Tasks: []models.Task{{ID: "task", History: []models.TaskHistoryEntry{history[0]}}}}
+	if context := buildTaskCorrectiveContext(&state.Tasks[0], state); context == nil || len(context.ScopeExceptions) != 1 || context.Unblock != nil {
+		t.Fatalf("an exception without reason or notes must still project: %+v", context)
+	}
+	plain := &prompts.TaskCorrectiveContext{Notes: []prompts.TaskHumanNote{{Target: "task", Message: "evidence"}}}
+	output, err := prompts.BuildRoleContext("coder", nil, &prompts.RoleContextData{RoleType: "doer", TaskID: "task", CorrectiveContext: plain})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "Scope, canonical acceptance, provider dependencies, review boundary and lifecycle gates are unchanged.") || strings.Contains(output, "AUTHORIZED SCOPE EXCEPTION") {
+		t.Fatal("without an exception the scope boundary must stay unqualified")
+	}
+}

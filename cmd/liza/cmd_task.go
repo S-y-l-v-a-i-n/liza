@@ -796,7 +796,15 @@ var unblockTaskCmd = &cobra.Command{
 	iteration. With --assign-to,
 	it directly restores the executing status and assigns the requested doer agent.
 	With --rebase-on, it rebases a preserved task worktree before unblocking, updates
-	base_commit, and leaves rebase conflicts BLOCKED with fresh repair metadata.`,
+	base_commit, and leaves rebase conflicts BLOCKED with fresh repair metadata.
+	With --scope-exception-file, a coding task also receives a bounded in-task
+	scope exception: one strict JSON object {"files": [...], "change": "...",
+	"unchanged": "..."} of 1-8 repository-relative files and at most 4096 bytes.
+	Outside its original scope the task may then change only those files, only as
+	stated; acceptance, provider dependencies, review boundary and lifecycle gates
+	stay unchanged. Use it when the blocked task can close the gap itself in test
+	support, fixtures or its own constants, with production code and merged
+	contracts unchanged and no other unmerged writer of those files.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) (retErr error) {
 		if isJSON(cmd) {
@@ -835,12 +843,21 @@ var unblockTaskCmd = &cobra.Command{
 		if !cmd.Flags().Changed("new-iteration") {
 			newIteration = false
 		}
+		var scopeException *ops.ScopeException
+		if cmd.Flags().Changed("scope-exception-file") {
+			path, _ := cmd.Flags().GetString("scope-exception-file")
+			scopeException, err = readScopeException(path)
+			if err != nil {
+				return err
+			}
+		}
 		opts := ops.UnblockTaskOptions{
-			Request:      requestOpts,
-			AssignTo:     assignTo,
-			RebaseOn:     rebaseOn,
-			AllowDirty:   allowDirty,
-			NewIteration: newIteration,
+			Request:        requestOpts,
+			AssignTo:       assignTo,
+			RebaseOn:       rebaseOn,
+			AllowDirty:     allowDirty,
+			NewIteration:   newIteration,
+			ScopeException: scopeException,
 		}
 
 		if operatorInvocation(cmd) {
@@ -882,6 +899,23 @@ var unblockTaskCmd = &cobra.Command{
 		}
 		return commands.UnblockTaskWithAuthorityCommand(projectRoot, taskID, reason, authority, opts)
 	},
+}
+
+func readScopeException(path string) (*ops.ScopeException, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, cliValidationWrap("opening --scope-exception-file", err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, ops.MaxScopeExceptionBytes+1))
+	if err != nil {
+		return nil, cliValidationWrap("reading --scope-exception-file", err)
+	}
+	exception, err := ops.ParseScopeException(data)
+	if err != nil {
+		return nil, cliValidationWrap("--scope-exception-file", err)
+	}
+	return exception, nil
 }
 
 func markBlockedOptionsFromFlags(cmd *cobra.Command) (ops.MarkBlockedOptions, error) {
@@ -1864,6 +1898,7 @@ func init() {
 	unblockTaskCmd.Flags().String("rebase-on", "", "branch or commit to rebase the task worktree onto before unblocking")
 	unblockTaskCmd.Flags().Bool("allow-dirty", false, "allow tracked worktree changes during --rebase-on by using git rebase --autostash")
 	unblockTaskCmd.Flags().Bool("new-iteration", false, "make the resume consume an iteration; omitted, the next claim continues the current iteration")
+	unblockTaskCmd.Flags().String("scope-exception-file", "", "JSON file granting a coding task a bounded in-task scope exception (files, change, unchanged)")
 	unblockTaskCmd.MarkFlagRequired("reason")
 	registerCompletion(unblockTaskCmd, "agent-id", completeAgentIDs)
 	registerCompletion(unblockTaskCmd, "assign-to", completeAgentIDs)

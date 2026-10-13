@@ -567,6 +567,16 @@ satisfied dependencies. A task with `validation_prerequisites` refuses
 `--assign-to`, so it restores unassigned and its supervisor claims it after a
 fresh target-session preflight.
 
+`--scope-exception-file` adds a bounded in-task scope exception to a coding
+task's restore: 1-8 repository-relative files, the change permitted there and
+what must stay unchanged, recorded on the `unblocked` history entry. Later doer
+and reviewer prompts treat it as added file scope only; acceptance, provider
+dependencies, review boundary and lifecycle gates are unchanged. The
+orchestrator uses it instead of a correction plan when the blocked task can
+close the gap in test support, fixtures or its own constants with production
+code and merged contracts unchanged
+([ADR-0206](../architecture/ADR/0206-in-task-scope-exceptions.md)).
+
 #### Infrastructure-only contention holds
 
 `mark-blocked --state-lock-timeout` or explicit assessment adoption records a

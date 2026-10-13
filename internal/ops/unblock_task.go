@@ -41,6 +41,9 @@ type UnblockTaskOptions struct {
 	RebaseOn     string
 	AllowDirty   bool
 	NewIteration bool
+	// ScopeException, when set, records a bounded in-task scope grant on
+	// the unblocked history entry (ADR-0206). Coding tasks only.
+	ScopeException *ScopeException
 	// Only mechanical contention recovery supplies this captured episode.
 	stateLockHold *models.StateLockHold
 	// Only UnblockTaskAsOperator sets this; it waives the orchestrator-ID check.
@@ -162,6 +165,11 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 	if agentID == "" {
 		return nil, &PreconditionError{Reason: "agent ID is required"}
 	}
+	if opts.ScopeException != nil {
+		if err := opts.ScopeException.Validate(); err != nil {
+			return nil, &PreconditionError{Reason: err.Error()}
+		}
+	}
 	if err := identity.ValidateRole(agentID, roles.Orchestrator); err != nil && !opts.operator {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("only orchestrator agents can unblock tasks: %v", err)}
 	}
@@ -200,9 +208,10 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 	request, err := NewLifecycleRequest("unblock-task", observed, agentID, authority, opts.Request, struct {
 		Reason, AssignTo, RebaseOn string
 		AllowDirty                 bool
-		// omitempty keeps the identity of requests made without the flag.
-		NewIteration bool `json:",omitempty"`
-	}{reason, opts.AssignTo, opts.RebaseOn, opts.AllowDirty, opts.NewIteration})
+		// omitempty keeps the identity of requests made without the flags.
+		NewIteration   bool            `json:",omitempty"`
+		ScopeException *ScopeException `json:",omitempty"`
+	}{reason, opts.AssignTo, opts.RebaseOn, opts.AllowDirty, opts.NewIteration, opts.ScopeException})
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +263,9 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 		expectedDoer, err := resolver.DoerRole(task.RolePair)
 		if err != nil {
 			return &PreconditionError{Reason: fmt.Sprintf("unrecognized role-pair %q: %v", task.RolePair, err)}
+		}
+		if opts.ScopeException != nil && expectedDoer != roles.Coder {
+			return &PreconditionError{Reason: fmt.Sprintf("scope exceptions apply to coding tasks only; task %s has doer role %q", taskID, expectedDoer)}
 		}
 		if opts.AssignTo != "" && assignRole != expectedDoer {
 			return &PreconditionError{Reason: fmt.Sprintf("assign-to agent role %q does not match task doer role %q", assignRole, expectedDoer)}
@@ -363,6 +375,9 @@ func unblockTaskLifecycle(projectRoot, taskID, reason, agentID string, opts Unbl
 			task.Continuation = !opts.NewIteration
 		}
 		historyExtra["new_iteration"] = opts.NewIteration
+		if opts.ScopeException != nil {
+			historyExtra[historyExtraScopeException] = opts.ScopeException.historyValue()
+		}
 		task.BlockedReason = nil
 		task.BlockedQuestions = nil
 		task.RepairRequest = nil

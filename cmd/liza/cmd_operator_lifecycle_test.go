@@ -282,3 +282,46 @@ func TestOperatorReconcileMergedRecordsHumanActor(t *testing.T) {
 		t.Fatalf("history actor = %q, want human", agent)
 	}
 }
+
+func TestOperatorUnblockTaskRecordsScopeExceptionFile(t *testing.T) {
+	// GIVEN a blocked coding task with no worktree
+	now := time.Now().UTC()
+	blocked := testhelpers.BuildTaskByStatus("task-op-scope", models.TaskStatusBlocked, now)
+	blocked.Worktree = nil
+	blocked.BaseCommit = nil
+	root, statePath := setupOperatorProject(t, blocked)
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		path := dir + "/" + name
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	oversize := write("oversize.json", `{"files":["a.py"],"change":"`+strings.Repeat("x", 5000)+`","unchanged":"u"}`)
+	malformed := write("unknown.json", `{"files":["a.py"],"change":"c","unchanged":"u","acceptance":"waived"}`)
+	valid := write("valid.json", `{"files":["tests/fixtures/seed.py"],"change":"move the seed origin to the past","unchanged":"every relative schedule"}`)
+
+	// WHEN the file is missing, oversize or carries an unknown field
+	for _, path := range []string{dir + "/missing.json", oversize, malformed} {
+		err := executeRootCommand(t, root, "unblock-task", "task-op-scope", "--reason", "in place", "--scope-exception-file", path)
+		// THEN the command refuses and the task stays BLOCKED
+		if err == nil || !strings.Contains(err.Error(), "--scope-exception-file") {
+			t.Fatalf("%s: err = %v, want scope-exception-file refusal", path, err)
+		}
+		if task := mustFindTask(t, readState(t, statePath), "task-op-scope"); task.Status != models.TaskStatusBlocked {
+			t.Fatalf("%s: status = %s, want BLOCKED", path, task.Status)
+		}
+	}
+
+	// WHEN the file is valid
+	if err := executeRootCommand(t, root, "unblock-task", "task-op-scope", "--reason", "in place", "--scope-exception-file", valid); err != nil {
+		t.Fatalf("operator unblock-task with scope exception failed: %v", err)
+	}
+	// THEN the unblocked entry carries the exception
+	task := mustFindTask(t, readState(t, statePath), "task-op-scope")
+	exception, ok := task.History[len(task.History)-1].Extra["scope_exception"].(map[string]any)
+	if task.Status == models.TaskStatusBlocked || !ok || exception["change"] != "move the seed origin to the past" {
+		t.Fatalf("status %s, exception %+v", task.Status, task.History[len(task.History)-1].Extra)
+	}
+}

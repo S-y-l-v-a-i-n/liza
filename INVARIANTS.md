@@ -314,7 +314,7 @@ applicable.
 
 | Invariant | Protects Against | Enforced |
 |-----------|------------------|----------|
-| Work only on claimed task; no modifications outside task scope; no "while I'm here" fixes | Scope creep, unplanned rework | spec (`task-lifecycle.md`), contract (Rule 6) |
+| Work only on claimed task; no modifications outside task scope; no "while I'm here" fixes. A coding task's scope grows only by a recorded scope exception (`unblock-task --scope-exception-file`): listed files, stated change, nothing else ([ADR-0206](specs/architecture/ADR/0206-in-task-scope-exceptions.md)) | Scope creep, unplanned rework | spec (`task-lifecycle.md`), contract (Rule 6), code (`scope_exception.go`) |
 | Adjacent problems discovered → logged to blackboard, not fixed; planner decides | Lost discoveries, unauthorized fixes | spec |
 | Hypothesis exhaustion: task BLOCKED by 2+ different coders → framing presumed wrong, must rescope/split/abandon | Infinite reassignment loops | spec (`task-lifecycle.md`), code (`assess_blocked.go`) |
 | Spec is law (MAM): no improvements beyond spec, no refactoring outside scope, `done_when` is contract | Feature creep, moving goalpost | contract (MULTI_AGENT_MODE.md) |

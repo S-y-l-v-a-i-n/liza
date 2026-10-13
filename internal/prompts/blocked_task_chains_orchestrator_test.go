@@ -66,3 +66,38 @@ func TestBlockedTaskChainsOrchestratorAndBlockingProtocol(t *testing.T) {
 		t.Error("blocking protocol still carries the unqualified add-edge direction")
 	}
 }
+
+// D-111: the blocked-task wake offers the in-place scope-exception route with
+// its narrow eligibility, and only a coder's blocking protocol asks for the
+// in-place candidate.
+func TestBlockedTaskInPlaceScopeExceptionRoute(t *testing.T) {
+	withPromptBrandValues(t, func() {
+		brand.BinaryName = "acme-cli"
+		brand.ProjectDirName = ".acme-run"
+	})
+	rendered, err := RenderWakeInstructions("BLOCKED_TASKS", "orchestrator-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{
+		"In-task-fixable gap", "only test support, fixtures or its own constants",
+		"production code, merged contracts, acceptance and provider obligations unchanged",
+		"no other unmerged task writes those files", "no unsettled human-owned decision",
+		"unblock-task --scope-exception-file", "acme-cli unblock-task --help",
+		"Prefer it to a correction plan or replacement", "in-place scope exception, owner correction",
+	} {
+		if !strings.Contains(rendered, phrase) {
+			t.Errorf("BLOCKED_TASKS missing %q", phrase)
+		}
+	}
+	const candidate = "the orchestrator may grant it as a scope exception"
+	for role, want := range map[string]bool{"coder": true, "integration-analyst": false} {
+		protocol, err := BuildRoleContext(role, []string{"blocking-protocol"}, &RoleContextData{Role: role, AgentID: role + "-1", RoleType: "doer", TaskID: "task-1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(protocol, candidate) != want {
+			t.Errorf("%s blocking protocol in-place candidate = %v, want %v", role, !want, want)
+		}
+	}
+}

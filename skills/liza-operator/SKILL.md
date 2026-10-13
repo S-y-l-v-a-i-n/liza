@@ -329,6 +329,8 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   touched the task; blackboard task data alone is not enough. Handle blocks fast: read each new BLOCKED
   reason the round it appears. A correction plan costs a plan, a review and usually a coding task; when the
   orchestrator commissions one for a repair the blocked task could make, propose the in-place route first.
+  Record an approved in-place exception with `§BRAND_BINARY_NAME§ unblock-task <id> --scope-exception-file`
+  (files, change, unchanged) so the doer and reviewer prompts carry it.
 - **Re-run** a flaky validation **once** before believing a red.
 - **Throttle on measured contention** — baseline failure rate and task progress, lower `config.max_instances`, let extra agents
   drain, re-measure both, and roll back if contention persists or progress stalls; restore a human-set cap once contention clears. Never kill

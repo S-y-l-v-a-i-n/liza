@@ -221,11 +221,23 @@ type LegacyArtifactReference struct {
 	File  string
 }
 
-// TaskCorrectiveContext carries bounded evidence, never lifecycle or review authority.
+// TaskCorrectiveContext carries bounded evidence plus recorded scope exceptions,
+// which add file scope only; never lifecycle or review authority.
 type TaskCorrectiveContext struct {
-	Unblock      *TaskUnblockResolution
-	Notes        []TaskHumanNote
-	OmittedNotes int
+	Unblock         *TaskUnblockResolution
+	Notes           []TaskHumanNote
+	OmittedNotes    int
+	ScopeExceptions []TaskScopeException
+}
+
+// TaskScopeException is one recorded unblock-time grant (ADR-0206): the only
+// carrier in this context that changes anything, and it adds file scope only.
+type TaskScopeException struct {
+	Timestamp string
+	Agent     string
+	Files     []string
+	Change    string
+	Unchanged string
 }
 
 type TaskUnblockResolution struct {

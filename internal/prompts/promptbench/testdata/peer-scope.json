@@ -77,8 +77,8 @@
     {
       "role": "coder",
       "variant": "coding-pair",
-      "before_bytes": 290961,
-      "after_bytes": 286185,
+      "before_bytes": 291223,
+      "after_bytes": 286447,
       "delta_bytes": -4776,
       "reference_before_bytes": 266437,
       "reference_after_bytes": 261661
@@ -194,8 +194,8 @@
     {
       "role": "orchestrator",
       "variant": "wake BLOCKED_TASKS",
-      "before_bytes": 30202,
-      "after_bytes": 30202,
+      "before_bytes": 30674,
+      "after_bytes": 30674,
       "delta_bytes": 0,
       "reference_before_bytes": 0,
       "reference_after_bytes": 0
@@ -203,8 +203,8 @@
     {
       "role": "orchestrator",
       "variant": "wake HYPOTHESIS_EXHAUSTED",
-      "before_bytes": 21278,
-      "after_bytes": 21278,
+      "before_bytes": 21304,
+      "after_bytes": 21304,
       "delta_bytes": 0,
       "reference_before_bytes": 0,
       "reference_after_bytes": 0
@@ -212,8 +212,8 @@
     {
       "role": "orchestrator",
       "variant": "wake IMMEDIATE_DISCOVERY",
-      "before_bytes": 19848,
-      "after_bytes": 19848,
+      "before_bytes": 19874,
+      "after_bytes": 19874,
       "delta_bytes": 0,
       "reference_before_bytes": 0,
       "reference_after_bytes": 0

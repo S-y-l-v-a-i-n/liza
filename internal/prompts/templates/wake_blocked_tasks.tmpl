@@ -23,6 +23,7 @@ Assess the BLOCKED tasks named by this wake.
    - Runtime/environment failure or stale ownership → diagnose the host/session; narrow supported recovery, work preserved
    - Wrong or excessive dependency → state what each disputed edge supplies and what fails without it, then graph repair below; never delete all inherited edges (documentation can be a real provider)
    - Corrected inputs, valid task → unblock (--rebase-on when integration moved); run commands NOW
+   - In-task-fixable gap: the blocked coding task's fix touches only test support, fixtures or its own constants; production code, merged contracts, acceptance and provider obligations unchanged; no other unmerged task writes those files; no unsettled human-owned decision → unblock-task --scope-exception-file (files, change, unchanged; {{binaryName}} unblock-task --help). Prefer it to a correction plan or replacement, which stay for what it excludes
    - Genuine product ambiguity → assess-blocked with the minimal unresolved decision for the human, then route the answer to the source owner; not supersession by default
    - Only a human can clear it (decision, credentials, provisioning, access) → assess-blocked --human-action "<exact one-line ask>" raises AWAITING HUMAN; --clear-human-action once agents own the repair. Unblock a human-owned block only after a human note or the ask's own closure
    - Unsupported technical assumption → the owning specialist investigates or proposes a feasible alternative; a product trade-off goes to the human

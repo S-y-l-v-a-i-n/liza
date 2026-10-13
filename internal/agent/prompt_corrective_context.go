@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/liza-mas/liza/internal/models"
+	"github.com/liza-mas/liza/internal/ops"
 	"github.com/liza-mas/liza/internal/prompts"
 )
 
@@ -56,7 +57,13 @@ func buildTaskCorrectiveContext(task *models.Task, state *models.State) *prompts
 		context.Notes = append(context.Notes, view)
 	}
 	slices.Reverse(context.Notes)
-	if context.Unblock == nil && len(context.Notes) == 0 {
+	for _, exception := range ops.RecordedScopeExceptions(task.History) {
+		context.ScopeExceptions = append(context.ScopeExceptions, prompts.TaskScopeException{
+			Timestamp: exception.Time.UTC().Format(time.RFC3339), Agent: prompts.TruncateText(exception.Agent, correctiveLabelRunes),
+			Files: exception.Files, Change: exception.Change, Unchanged: exception.Unchanged,
+		})
+	}
+	if context.Unblock == nil && len(context.Notes) == 0 && len(context.ScopeExceptions) == 0 {
 		return nil
 	}
 	return context
