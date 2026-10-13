@@ -140,6 +140,24 @@ func (s *Store) Process(result Result) (string, error) { return s.process(result
 // transport imposes a stricter output limit.
 func (s *Store) ProcessForced(result Result) (string, error) { return s.process(result, true) }
 
+// Persist stores sanitized evidence its caller references by the returned
+// content hash, such as a failed deferred-validation command's output. It
+// records no event: the content is not a provider tool result and must not
+// count in Stats.
+func (s *Store) Persist(content string) (string, error) {
+	content = strings.ReplaceAll(s.sanitizeContent(content, false), "\r\n", "\n")
+	root, err := os.OpenRoot(s.path)
+	if err != nil {
+		return "", errors.New("cannot open tool-result store")
+	}
+	defer root.Close()
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))
+	if _, err := persistOnce(root, hash+".txt", []byte(content)); err != nil {
+		return "", errors.New("cannot persist sanitized tool-result artifact")
+	}
+	return hash, nil
+}
+
 // Sanitize applies the store redaction policy before transport-specific truncation.
 func (s *Store) Sanitize(value string) string { return s.sanitize(value) }
 

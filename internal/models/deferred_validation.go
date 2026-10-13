@@ -176,7 +176,10 @@ type DeferredValidationBatch struct {
 }
 
 // DeferredValidationResult is one command's outcome in a batch. Command and
-// Excerpt are masked presentation.
+// Excerpt are masked presentation; Excerpt is bounded to the state text limit.
+// OutputSHA256 names a failed command's full masked output in the project's
+// tool-result store (`tool-result read`); it is empty when the capture
+// overflowed (output omitted) or the store could not keep it.
 type DeferredValidationResult struct {
 	Command       string                         `yaml:"command" json:"command"`
 	CommandSHA256 string                         `yaml:"command_sha256" json:"command_sha256"`
@@ -185,6 +188,7 @@ type DeferredValidationResult struct {
 	StartedAt     time.Time                      `yaml:"started_at" json:"started_at"`
 	FinishedAt    time.Time                      `yaml:"finished_at" json:"finished_at"`
 	Excerpt       string                         `yaml:"excerpt,omitempty" json:"excerpt,omitempty"`
+	OutputSHA256  string                         `yaml:"output_sha256,omitempty" json:"output_sha256,omitempty"`
 }
 
 // DeferredValidationCulprit attributes one failing command. TaskID is set only

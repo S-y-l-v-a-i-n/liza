@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,11 +11,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/filelock"
 	"github.com/liza-mas/liza/internal/models"
+	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/statehygiene"
 	"github.com/liza-mas/liza/internal/testhelpers"
+	"github.com/liza-mas/liza/internal/toolresult"
 )
 
 // dvFixture is an integration branch whose task merges carry mutation
@@ -686,5 +691,195 @@ func TestRecordMergedDeferralsUsesExactCommandAndMergeBase(t *testing.T) {
 	recordMergedDeferrals(state, &models.Task{ID: "task-2"}, after, time.Now().UTC())
 	if len(state.Goal.Integration.DeferredValidation.Deferrals) != 1 {
 		t.Fatal("a task without deferrals must not be recorded")
+	}
+}
+
+// dvFailedResult runs one failing command at a fresh merge and returns the
+// published batch, whose only result is that command's.
+func dvFailedResult(t *testing.T, f *dvFixture, command string) (models.DeferredValidationBatch, models.DeferredValidationResult) {
+	t.Helper()
+	f.merge("task-1", map[string]string{"a.txt": "a\n"}, dvCommand(command, 60))
+	batch := onlyBatch(t, f.run(false))
+	if batch.Status != models.DeferredValidationBatchFailed || len(batch.Results) != 1 || batch.Results[0].Status != models.DeferredValidationResultFailed {
+		t.Fatalf("batch = %#v", batch)
+	}
+	return batch, batch.Results[0]
+}
+
+// dvOutputRef reads the result's full-output reference through its wire
+// form, so the assertion is on the persisted field name.
+func dvOutputRef(t *testing.T, result models.DeferredValidationResult) string {
+	t.Helper()
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := fields["output_sha256"].(string)
+	return ref
+}
+
+func dvToolResultsRoot(root string) string {
+	return filepath.Join(root, paths.ProjectDirName(), "tool-results")
+}
+
+func requireStateText(t *testing.T, field, text string) {
+	t.Helper()
+	if len(text) > statehygiene.MaxStateTextBytes || !utf8.ValidString(text) || statehygiene.IsTranscriptPayload(text) {
+		t.Fatalf("%s is not state-safe (%d bytes, valid UTF-8 %v): %q", field, len(text), utf8.ValidString(text), text)
+	}
+}
+
+const dvLongFailure = `head -c 9000 /dev/zero | tr '\0' x; printf '\nTAIL-MARKER\n'; exit 1`
+
+func TestDeferredValidationLongFailureOutputPublishesBoundedExcerpt(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	_, result := dvFailedResult(t, f, dvLongFailure)
+	requireStateText(t, "excerpt", result.Excerpt)
+	if !strings.HasPrefix(result.Excerpt, "exit status 1\n") || !strings.Contains(result.Excerpt, "TAIL-MARKER") {
+		t.Fatalf("excerpt must keep the head (error) and the tail (last line): %q", result.Excerpt)
+	}
+}
+
+func TestDeferredValidationFailureKeepsFullOutputInToolResults(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	_, result := dvFailedResult(t, f, dvLongFailure)
+	ref := dvOutputRef(t, result)
+	if ref == "" {
+		t.Fatalf("a failed result must reference its full output: %#v", result)
+	}
+	store, err := toolresult.New(dvToolResultsRoot(f.root), toolresult.Config{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := store.Read(ref, 0, toolresult.MaxReadBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(full, "exit status 1\n") || !strings.Contains(full, strings.Repeat("x", 9000)) || !strings.HasSuffix(full, "TAIL-MARKER\n") {
+		t.Fatalf("stored output is not the complete masked capture (%d bytes)", len(full))
+	}
+	events, err := os.ReadDir(filepath.Join(dvToolResultsRoot(f.root), "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("evidence storage must not write tool-result telemetry, got %d events", len(events))
+	}
+}
+
+func TestDeferredValidationTranscriptShapedOutputPublishes(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	// Only the output is transcript-shaped: the command text, which state
+	// also checks, assembles the markers at run time.
+	_, result := dvFailedResult(t, f, `printf '{"type":"%s.completed","item":{"type":"command_%s","aggregated_%s":"x"}}\n' item execution output; exit 1`)
+	requireStateText(t, "excerpt", result.Excerpt)
+	if result.Excerpt == "" {
+		t.Fatal("a failed result must say why its output is not shown")
+	}
+}
+
+// dvManyUntracked leaves enough untracked files that `git status --short`
+// exceeds the state text limit several times over.
+const dvManyUntracked = `for i in $(seq 1 400); do : > "untracked-file-with-a-deliberately-long-name-$i.txt"; done`
+
+func TestDeferredValidationLongContaminationPublishes(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	f.merge("task-1", map[string]string{"a.txt": "a\n"}, dvCommand(dvManyUntracked, 60))
+	batch := onlyBatch(t, f.run(false))
+	if batch.Status != models.DeferredValidationBatchInfraFailed || batch.Results[0].Status != models.DeferredValidationResultContaminated {
+		t.Fatalf("batch = %#v", batch)
+	}
+	requireStateText(t, "excerpt", batch.Results[0].Excerpt)
+	if !strings.Contains(batch.Results[0].Excerpt, "batch worktree has changes") {
+		t.Fatalf("excerpt = %q", batch.Results[0].Excerpt)
+	}
+}
+
+func TestDeferredValidationLongSetupFailureReasonPublishes(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	setup := dvManyUntracked
+	f.modify(func(state *models.State) { state.Config.PostWorktreeCmd = &setup })
+	f.merge("task-1", map[string]string{"a.txt": "a\n"}, dvCommand(dvCheckValue, 60))
+	batch := onlyBatch(t, f.run(false))
+	if batch.Status != models.DeferredValidationBatchInfraFailed || !strings.HasPrefix(batch.Reason, "setup: batch worktree has changes") {
+		t.Fatalf("batch = %#v", batch)
+	}
+	requireStateText(t, "reason", batch.Reason)
+}
+
+func TestDeferredValidationOutputStoreFailureStillPublishes(t *testing.T) {
+	t.Parallel()
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	if err := os.WriteFile(dvToolResultsRoot(f.root), []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, result := dvFailedResult(t, f, dvLongFailure)
+	requireStateText(t, "excerpt", result.Excerpt)
+	if ref := dvOutputRef(t, result); ref != "" {
+		t.Fatalf("no output can be referenced when the store cannot open, got %q", ref)
+	}
+}
+
+// The synthetic secret's first line is captured before the 1 MiB capture
+// limit and its remainder after it, so exact-value masking cannot recognize
+// the captured part.
+func TestDeferredValidationOutputOverflowOmitsCapture(t *testing.T) {
+	prefix := "SYNTHETIC-D132-SECRET-PREFIX-" + strings.Repeat("p", 64)
+	t.Setenv("DV_D132_SECRET_TOKEN", prefix+"\n"+strings.Repeat("s", 4096))
+	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+	filler := acceptanceOutputLimit - len(prefix) - 64
+	_, result := dvFailedResult(t, f, fmt.Sprintf(`head -c %d /dev/zero | tr '\0' x; printf '\n%%s\n' "$DV_D132_SECRET_TOKEN"; exit 1`, filler))
+	requireStateText(t, "excerpt", result.Excerpt)
+	if strings.Contains(result.Excerpt, "SYNTHETIC-D132") || !strings.Contains(result.Excerpt, "output omitted") {
+		t.Fatalf("an overflowed capture must be omitted, not excerpted: %q", result.Excerpt)
+	}
+	if ref := dvOutputRef(t, result); ref != "" {
+		t.Fatalf("an overflowed capture must not be stored, got %q", ref)
+	}
+	_ = filepath.WalkDir(dvToolResultsRoot(f.root), func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if data, readErr := os.ReadFile(path); readErr == nil && strings.Contains(string(data), "SYNTHETIC-D132") {
+			t.Fatalf("%s holds the partial secret", path)
+		}
+		return nil
+	})
+}
+
+func TestDeferredStateText(t *testing.T) {
+	t.Parallel()
+	limit := statehygiene.MaxStateTextBytes
+	long := "HEAD" + strings.Repeat("é", limit) + "TAIL"
+	transcript := `{"type":"item.completed","item":{"type":"command_execution","aggregated_output":"x"}}`
+	for _, tc := range []struct {
+		name, in   string
+		want       string
+		head, tail string
+	}{
+		{name: "short text passes through", in: "exit status 1\nok", want: "exit status 1\nok"},
+		{name: "text at the limit passes through", in: strings.Repeat("x", limit), want: strings.Repeat("x", limit)},
+		{name: "long multibyte text keeps head and tail", in: long, head: "HEAD", tail: "TAIL"},
+		{name: "invalid UTF-8 is replaced", in: "bad\xffbyte", want: "bad�byte"},
+		{name: "transcript-shaped text is replaced", in: transcript, want: deferredStateTranscriptOmitted},
+		{name: "transcript-shaped tail of long text is replaced", in: strings.Repeat("x", 2*limit) + transcript, want: deferredStateTranscriptOmitted},
+	} {
+		got := deferredStateText(tc.in)
+		requireStateText(t, tc.name, got)
+		if tc.want != "" && got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+		if tc.head != "" && (!strings.HasPrefix(got, tc.head) || !strings.HasSuffix(got, tc.tail) || !strings.Contains(got, "bytes omitted")) {
+			t.Errorf("%s: got %d bytes without head, tail and omission marker", tc.name, len(got))
+		}
 	}
 }

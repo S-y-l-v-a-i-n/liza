@@ -174,3 +174,37 @@ func TestDigestBoundsWithEscapingAndUnicode(t *testing.T) {
 	}
 	parseDigest(t, out)
 }
+
+func TestStorePersistWritesArtifactWithoutEvent(t *testing.T) {
+	s := testStore(t)
+	content := "line one\r\ntoken fake-known-secret\r\n"
+	hash, err := s.Persist(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.Read(hash, 0, MaxReadBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "fake-known-secret") || strings.Contains(stored, "\r") || !strings.HasPrefix(stored, "line one\n") {
+		t.Fatalf("stored = %q, want sanitized LF content", stored)
+	}
+	if want := fmt.Sprintf("%x", sha256.Sum256([]byte(stored))); hash != want {
+		t.Fatalf("hash = %s, want the stored content's %s", hash, want)
+	}
+	again, err := s.Persist(content)
+	if err != nil || again != hash {
+		t.Fatalf("identical evidence must resolve to the same artifact: %q, %v", again, err)
+	}
+	events, err := os.ReadDir(filepath.Join(s.path, "events"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 || stats.Count != 0 {
+		t.Fatalf("evidence storage must not record telemetry: %d events, stats %+v", len(events), stats)
+	}
+}

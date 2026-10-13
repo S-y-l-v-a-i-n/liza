@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/liza-mas/liza/internal/alerts"
 	"github.com/liza-mas/liza/internal/brand"
@@ -22,7 +23,9 @@ import (
 	"github.com/liza-mas/liza/internal/gitenv"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/statehygiene"
 	"github.com/liza-mas/liza/internal/subprocess"
+	"github.com/liza-mas/liza/internal/toolresult"
 )
 
 // Deferred validation (ADR-0204) runs the canonical commands admission
@@ -36,7 +39,6 @@ const (
 	deferredValidationOperation      = "deferred-validation"
 	deferredValidationMaxRunsPerCall = 3
 	deferredValidationGitTimeout     = 5 * time.Minute
-	deferredValidationExcerptLimit   = 8 << 10
 	deferredValidationDirName        = "deferred-validation"
 	// IntegrationProgressWaitingDeferredValidation is the stable integration
 	// wait on which the orchestrator supervisor retries a pending batch.
@@ -496,6 +498,7 @@ func runDeferredValidation(ctx context.Context, projectRoot string, opts RunDefe
 		worktree: filepath.Join(dir, "worktree"),
 		bb:       db.For(paths.New(projectRoot).StatePath()),
 		lockFile: held.File(),
+		outputs:  openDeferredValidationOutputs(projectRoot),
 		mask:     acceptanceExecutionMask(os.Environ()),
 		follows:  deferredValidationLockFollowsChildren(held),
 		reap:     hooks.reap,
@@ -568,9 +571,12 @@ type deferredValidationRunner struct {
 	worktree string
 	bb       *db.Blackboard
 	lockFile *os.File
-	mask     func(string) string
-	follows  bool
-	reap     func(pid int, wait time.Duration) bool
+	// outputs keeps failed commands' full masked output; nil when the store
+	// cannot open, which costs the reference, never the verdict.
+	outputs *toolresult.Store
+	mask    func(string) string
+	follows bool
+	reap    func(pid int, wait time.Duration) bool
 	// orphaned is set once a step's descendants could not be shown to have
 	// ended; no further process starts and the lock stays with them.
 	orphaned bool
@@ -879,8 +885,10 @@ func (r *deferredValidationRunner) checkClean(ctx context.Context, rev string) e
 	return execResult{exitCode: 0}
 }
 
-// probe runs one command at the prepared worktree and classifies it.
-func (r *deferredValidationRunner) probe(ctx context.Context, rev string, command models.DeferredValidationCommand) (models.DeferredValidationResult, bool) {
+// probe runs one command at the prepared worktree and classifies it. With
+// keepOutput, a failure's full masked output is stored and referenced; bisect
+// steps keep only their status, so they store nothing.
+func (r *deferredValidationRunner) probe(ctx context.Context, rev string, command models.DeferredValidationCommand, keepOutput bool) (models.DeferredValidationResult, bool) {
 	result := models.DeferredValidationResult{Command: r.mask(command.Command), CommandSHA256: command.CommandSHA256, ExitCode: -1, StartedAt: time.Now().UTC()}
 	res := r.run(ctx, time.Duration(command.TimeoutSeconds)*time.Second, func(ctx context.Context) (*exec.Cmd, error) {
 		return shellCommandContext(ctx, command.Command, r.worktree)
@@ -894,11 +902,17 @@ func (r *deferredValidationRunner) probe(ctx context.Context, rev string, comman
 	result.Status = models.DeferredValidationResultPassed
 	if res.err != nil {
 		result.Status = models.DeferredValidationResultFailed
-		excerpt, truncated := persistedOutputExcerpt(res.output, deferredValidationExcerptLimit)
-		if truncated {
-			excerpt += "\n[output truncated]"
+		if errors.Is(res.err, errAcceptanceOutputLimit) {
+			// Masking cannot recognize a known secret whose end was never
+			// captured: keep none of an overflowed capture.
+			result.Excerpt = deferredStateText(r.mask(fmt.Sprintf("%v\noutput omitted: capture exceeded the %d MiB limit", res.err, acceptanceOutputLimit>>20)))
+		} else {
+			full := r.mask(fmt.Sprintf("%v\n%s", res.err, res.output))
+			result.Excerpt = deferredStateText(full)
+			if keepOutput {
+				result.OutputSHA256 = r.storeOutput(full)
+			}
 		}
-		result.Excerpt = r.mask(fmt.Sprintf("%v\n%s", res.err, excerpt))
 	}
 	clean := r.checkClean(ctx, rev)
 	if clean.halted {
@@ -907,9 +921,67 @@ func (r *deferredValidationRunner) probe(ctx context.Context, rev string, comman
 	}
 	if clean.err != nil {
 		result.Status = models.DeferredValidationResultContaminated
-		result.Excerpt = r.mask(clean.err.Error())
+		result.Excerpt = deferredStateText(r.mask(clean.err.Error()))
 	}
 	return result, false
+}
+
+// deferredStateTextMarker replaces the middle of runner text over the state
+// limit; the tail is kept because test runners summarize failures last.
+const deferredStateTextMarker = "\n[... %d bytes omitted ...]\n"
+
+// deferredStateTranscriptOmitted replaces runner text that state would refuse
+// as a provider transcript.
+const deferredStateTranscriptOmitted = "output omitted from state: it resembles a provider transcript"
+
+// deferredStateText makes runner-composed text one that state accepts: valid
+// UTF-8, at most statehygiene.MaxStateTextBytes with head and tail kept, and
+// not transcript-shaped. Call it on masked text, so no cut can split a
+// secret before masking sees it.
+func deferredStateText(text string) string {
+	text = strings.ToValidUTF8(text, "\uFFFD")
+	if limit := statehygiene.MaxStateTextBytes; len(text) > limit {
+		// The marker's count never has more digits than len(text).
+		keep := limit - len(fmt.Sprintf(deferredStateTextMarker, len(text)))
+		head, tail := keep/2, len(text)-(keep-keep/2)
+		for head > 0 && !utf8.RuneStart(text[head]) {
+			head--
+		}
+		for tail < len(text) && !utf8.RuneStart(text[tail]) {
+			tail++
+		}
+		text = text[:head] + fmt.Sprintf(deferredStateTextMarker, tail-head) + text[tail:]
+	}
+	if statehygiene.IsTranscriptPayload(text) {
+		return deferredStateTranscriptOmitted
+	}
+	return text
+}
+
+func deferredValidationOutputsDir(projectRoot string) string {
+	return filepath.Join(projectRoot, paths.ProjectDirName(), "tool-results")
+}
+
+func openDeferredValidationOutputs(projectRoot string) *toolresult.Store {
+	store, err := toolresult.New(deferredValidationOutputsDir(projectRoot), toolresult.Config{}, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "deferred-validation: failed command output will not be stored: %v\n", err)
+		return nil
+	}
+	return store
+}
+
+// storeOutput returns full's tool-result hash, or "" when it cannot be kept.
+func (r *deferredValidationRunner) storeOutput(full string) string {
+	if r.outputs == nil {
+		return ""
+	}
+	hash, err := r.outputs.Persist(full)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "deferred-validation: failed command output not stored: %v\n", err)
+		return ""
+	}
+	return hash
 }
 
 // execute runs one batch at head. It never returns an error: every outcome,
@@ -934,7 +1006,7 @@ func (r *deferredValidationRunner) execute(ctx context.Context, state *models.St
 		if res.halted {
 			return finish(models.DeferredValidationBatchAborted, "halted")
 		}
-		return finish(models.DeferredValidationBatchInfraFailed, r.mask(fmt.Sprintf("%s: %v", what, res.err)))
+		return finish(models.DeferredValidationBatchInfraFailed, deferredStateText(r.mask(fmt.Sprintf("%s: %v", what, res.err))))
 	}
 	if res := r.resetWorktree(ctx, head); res.err != nil {
 		return infra(res, "prepare batch worktree")
@@ -945,7 +1017,7 @@ func (r *deferredValidationRunner) execute(ctx context.Context, state *models.St
 	var failed []models.DeferredValidationCommand
 	contaminated := false
 	for i, command := range commands {
-		result, halted := r.probe(ctx, head, command)
+		result, halted := r.probe(ctx, head, command, true)
 		if halted {
 			return finish(models.DeferredValidationBatchAborted, "halted")
 		}
@@ -1062,7 +1134,7 @@ func (r *deferredValidationRunner) bisect(ctx context.Context, state *models.Sta
 		if res := r.prepareProbe(ctx, state, rev); res.halted {
 			return status, true
 		} else if res.err == nil {
-			result, halted := r.probe(ctx, rev, command)
+			result, halted := r.probe(ctx, rev, command, false)
 			if halted {
 				return status, true
 			}
