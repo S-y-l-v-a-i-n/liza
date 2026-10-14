@@ -734,16 +734,19 @@ type execResult struct {
 	halted   bool
 }
 
-// run admits and runs one process: the halt/stop check and start happen under
-// the shared work-admission lock against a lock-free state snapshot; waiting
-// happens outside it. The child inherits the runner lock where possible, runs
-// in its own process group and is killed on timeout or cancellation. Once it
-// exits, what remains of its group is killed and awaited, so no descendant
-// outlives the step that started it: releasing the runner lock unlocks the
-// description the descendants share. A descendant that leaves the group
-// (setsid) escapes this; validation commands must not daemonize. When the
-// group cannot be emptied, the step ends as a halt and no later step starts.
-func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duration, build func(context.Context) (*exec.Cmd, error)) execResult {
+// run runs one process. With admit, the halt/stop check and start happen
+// under the shared work-admission lock against a lock-free state snapshot;
+// waiting happens outside it. Without admit, it starts unchecked: only for a
+// read that finishes a step already started, because a halt starts no new
+// work but lets running work finish (D-158). The child inherits the runner
+// lock where possible, runs in its own process group and is killed on timeout
+// or cancellation. Once it exits, what remains of its group is killed and
+// awaited, so no descendant outlives the step that started it: releasing the
+// runner lock unlocks the description the descendants share. A descendant
+// that leaves the group (setsid) escapes this; validation commands must not
+// daemonize. When the group cannot be emptied, the step ends as a halt and no
+// later step starts.
+func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duration, admit bool, build func(context.Context) (*exec.Cmd, error)) execResult {
 	if r.orphaned {
 		return execResult{exitCode: -1, err: errDeferredValidationUnstoppable, halted: true}
 	}
@@ -760,16 +763,20 @@ func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duratio
 	}
 	configProcessGroupKill(cmd)
 	cmd.WaitDelay = 5 * time.Second
-	err = WithWorkAdmissionSharedLock(ctx, r.root, deferredValidationOperation, func() error {
-		state, readErr := r.bb.ReadSnapshot()
-		if readErr != nil {
-			return fmt.Errorf("%w: cannot read state: %w", errDeferredValidationHalted, readErr)
-		}
-		if admitErr := deferredValidationAdmitted(state); admitErr != nil {
-			return admitErr
-		}
-		return cmd.Start()
-	})
+	if admit {
+		err = WithWorkAdmissionSharedLock(ctx, r.root, deferredValidationOperation, func() error {
+			state, readErr := r.bb.ReadSnapshot()
+			if readErr != nil {
+				return fmt.Errorf("%w: cannot read state: %w", errDeferredValidationHalted, readErr)
+			}
+			if admitErr := deferredValidationAdmitted(state); admitErr != nil {
+				return admitErr
+			}
+			return cmd.Start()
+		})
+	} else {
+		err = cmd.Start()
+	}
 	if err != nil {
 		return execResult{exitCode: -1, err: err, halted: errors.Is(err, errDeferredValidationHalted)}
 	}
@@ -793,7 +800,17 @@ func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duratio
 }
 
 func (r *deferredValidationRunner) git(ctx context.Context, dir string, args ...string) execResult {
-	return r.run(ctx, deferredValidationGitTimeout, func(ctx context.Context) (*exec.Cmd, error) {
+	return r.gitRun(ctx, true, dir, args...)
+}
+
+// finishingGit is git for a read that finishes a step already started; a
+// halt or stop does not refuse it (see run).
+func (r *deferredValidationRunner) finishingGit(ctx context.Context, dir string, args ...string) execResult {
+	return r.gitRun(ctx, false, dir, args...)
+}
+
+func (r *deferredValidationRunner) gitRun(ctx context.Context, admit bool, dir string, args ...string) execResult {
+	return r.run(ctx, deferredValidationGitTimeout, admit, func(ctx context.Context) (*exec.Cmd, error) {
 		cmd := exec.CommandContext(ctx, "git", args...)
 		cmd.Dir = dir
 		cmd.Env = gitenv.Env()
@@ -857,25 +874,32 @@ func (r *deferredValidationRunner) prepareProbe(ctx context.Context, state *mode
 		ProvisionWorktreeEnvFiles(r.root, r.worktree)
 	}
 	if setup := state.Config.PostWorktreeCmd; setup != nil && strings.TrimSpace(*setup) != "" {
-		res := r.run(ctx, models.EffectiveDeferredValidationSetupTimeout(state.Config), func(ctx context.Context) (*exec.Cmd, error) {
+		res := r.run(ctx, models.EffectiveDeferredValidationSetupTimeout(state.Config), true, func(ctx context.Context) (*exec.Cmd, error) {
 			return shellCommandContext(ctx, *setup, r.worktree)
 		})
 		if res.err != nil {
 			return res
 		}
 	}
-	return r.checkClean(ctx, rev)
+	return r.checkClean(ctx, rev, false)
 }
 
-func (r *deferredValidationRunner) checkClean(ctx context.Context, rev string) execResult {
-	head := r.git(ctx, r.worktree, "rev-parse", "HEAD")
+// checkClean requires the batch worktree clean at rev. afterStep marks the
+// read that finishes a step already run, which a halt does not refuse; the
+// reads never write the worktree, its index included.
+func (r *deferredValidationRunner) checkClean(ctx context.Context, rev string, afterStep bool) execResult {
+	git := r.git
+	if afterStep {
+		git = r.finishingGit
+	}
+	head := git(ctx, r.worktree, "rev-parse", "HEAD")
 	if head.err != nil {
 		return head
 	}
 	if strings.TrimSpace(head.raw) != rev {
 		return execResult{exitCode: -1, err: fmt.Errorf("batch worktree HEAD is not %s", rev)}
 	}
-	status := r.git(ctx, r.worktree, "status", "--short")
+	status := git(ctx, r.worktree, "--no-optional-locks", "status", "--short")
 	if status.err != nil {
 		return status
 	}
@@ -890,7 +914,7 @@ func (r *deferredValidationRunner) checkClean(ctx context.Context, rev string) e
 // steps keep only their status, so they store nothing.
 func (r *deferredValidationRunner) probe(ctx context.Context, rev string, command models.DeferredValidationCommand, keepOutput bool) (models.DeferredValidationResult, bool) {
 	result := models.DeferredValidationResult{Command: r.mask(command.Command), CommandSHA256: command.CommandSHA256, ExitCode: -1, StartedAt: time.Now().UTC()}
-	res := r.run(ctx, time.Duration(command.TimeoutSeconds)*time.Second, func(ctx context.Context) (*exec.Cmd, error) {
+	res := r.run(ctx, time.Duration(command.TimeoutSeconds)*time.Second, true, func(ctx context.Context) (*exec.Cmd, error) {
 		return shellCommandContext(ctx, command.Command, r.worktree)
 	})
 	result.FinishedAt = time.Now().UTC()
@@ -914,7 +938,7 @@ func (r *deferredValidationRunner) probe(ctx context.Context, rev string, comman
 			}
 		}
 	}
-	clean := r.checkClean(ctx, rev)
+	clean := r.checkClean(ctx, rev, true)
 	if clean.halted {
 		result.Status = models.DeferredValidationResultNotRun
 		return result, true

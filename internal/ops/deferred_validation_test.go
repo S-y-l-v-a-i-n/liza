@@ -519,6 +519,98 @@ func TestDeferredValidationHaltDuringCommandStopsLaterStarts(t *testing.T) {
 	}
 }
 
+// A halt or stop that commits while a step runs, or between its two post-run
+// Git reads, keeps what the step observed: those reads finish admitted work
+// and start none. Anything that begins work still does not start (D-158).
+func TestDeferredValidationHaltKeepsFinishedStepResult(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		step   string // %[1]q is the step's marker, outside the batch worktree
+		next   bool
+		status models.DeferredValidationResultStatus
+		exit   int
+	}{
+		{"passed_then_next", `touch %[1]q`, true, models.DeferredValidationResultPassed, 0},
+		{"passed_final", `touch %[1]q`, false, models.DeferredValidationResultPassed, 0},
+		{"failed_final", `touch %[1]q; echo HALT-FAILURE-MARKER; exit 1`, false, models.DeferredValidationResultFailed, 1},
+		{"contaminated_then_next", `touch %[1]q dirty.txt`, true, models.DeferredValidationResultContaminated, 0},
+	}
+	modes := []models.SystemMode{models.SystemModePaused, models.SystemModeCircuitBreakerTripped, models.SystemModeStopped}
+	for _, tc := range cases {
+		for _, mode := range modes {
+			// haltAt counts reaps from the step's own: 0 halts before the
+			// first post-run read, 1 between rev-parse and status.
+			for _, haltAt := range []int{0, 1} {
+				t.Run(fmt.Sprintf("%s/%s/reap%d", tc.name, mode, haltAt), func(t *testing.T) {
+					t.Parallel()
+					f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})
+					signal := t.TempDir()
+					marker, second := filepath.Join(signal, "step"), filepath.Join(signal, "second")
+					commands := []models.DeferredValidationCommand{dvCommand(fmt.Sprintf(tc.step, marker), 60)}
+					if tc.next {
+						commands = append(commands, dvCommand(fmt.Sprintf("touch %q", second), 60))
+					}
+					head := f.merge("task-1", map[string]string{"a.txt": "a\n"}, commands...)
+					reaps := -1
+					hooks := deferredValidationHooks{platformSupported: true, reap: func(pid int, wait time.Duration) bool {
+						if _, err := os.Stat(marker); err == nil {
+							if reaps++; reaps == haltAt {
+								f.modify(func(state *models.State) { state.Config.Mode = mode })
+							}
+						}
+						return reapProcessGroup(pid, wait)
+					}}
+
+					result, err := runDeferredValidation(context.Background(), f.root, RunDeferredValidationOptions{}, hooks)
+					if err != nil {
+						t.Fatal(err)
+					}
+					batch := onlyBatch(t, result)
+					ledger := f.ledger()
+					if len(ledger.Batches) != 1 || ledger.Runner != nil {
+						t.Fatalf("ledger = %#v, want the one published batch and no runner", ledger)
+					}
+					for _, got := range []models.DeferredValidationBatch{batch, ledger.Batches[0]} {
+						step := got.Results[0]
+						if step.Status != tc.status || step.ExitCode != tc.exit {
+							t.Fatalf("step result = %#v, want %s exit %d", step, tc.status, tc.exit)
+						}
+						switch {
+						case tc.next:
+							if got.Status != models.DeferredValidationBatchAborted || got.Reason != "halted" || len(got.Results) != 2 || got.Results[1].Status != models.DeferredValidationResultNotRun {
+								t.Fatalf("batch = %#v, want aborted/halted with the next command not_run", got)
+							}
+						case tc.status == models.DeferredValidationResultPassed:
+							if got.Status != models.DeferredValidationBatchPassed || !got.Covers(ledger.EffectiveCommands()) || got.Commit != head {
+								t.Fatalf("batch = %#v, want a passed batch covering HEAD", got)
+							}
+						default:
+							if got.Status != models.DeferredValidationBatchAborted || got.Reason != "halted" || len(got.Culprits) != 0 {
+								t.Fatalf("batch = %#v, want aborted/halted with no bisect", got)
+							}
+						}
+					}
+					if _, err := os.Stat(second); !os.IsNotExist(err) {
+						t.Fatal("no command may start after a committed halt or stop")
+					}
+					if tc.status != models.DeferredValidationResultFailed {
+						return
+					}
+					store, err := toolresult.New(dvToolResultsRoot(f.root), toolresult.Config{}, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					full, err := store.Read(dvOutputRef(t, ledger.Batches[0].Results[0]), 0, toolresult.MaxReadBytes)
+					if err != nil || !strings.Contains(full, "HALT-FAILURE-MARKER") {
+						t.Fatalf("failed step output = %q (err %v), want the emitted failure text", full, err)
+					}
+				})
+			}
+		}
+	}
+}
+
 func TestDeferredValidationDueAfterEveryNMergesWithoutNewDeferrals(t *testing.T) {
 	t.Parallel()
 	f := newDVFixture(t, map[string]string{"value.txt": "ok\n"})

@@ -109,3 +109,14 @@ it.
 - A step whose processes cannot be stopped needs operator settlement.
 - Bisect assumes monotonic failure; a flaky suite yields an unattributed or
   wrong culprit, which the operator can contest by `--force` or `retire`.
+
+## Amendment (2026-10-14)
+
+A step's post-run cleanliness check (`rev-parse HEAD`, `status`) finishes work
+already admitted, so it is not admitted again. Admitting it let a halt
+committed while a step ran record the finished step as `not_run`, dropping
+hours of observed suite time (D-158). The check stays bounded, inherits the
+runner lock, is reaped, never writes the worktree (`--no-optional-locks`) and
+is refused once the runner is orphaned. Preparation, every step and every
+bisect process stay admitted, so a halt still starts nothing new: the batch
+keeps the finished step's result and records later commands `not_run`.
