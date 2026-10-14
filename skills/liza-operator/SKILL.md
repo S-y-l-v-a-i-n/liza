@@ -336,8 +336,8 @@ on a few. At planning/architecture checkpoints, when the goal is "validate again
   `timeout_seconds` is wrong, record the human's budget ruling with `§BRAND_BINARY_NAME§ unblock-task <id>
   --budget-exception <seconds> --budget-ruling <decision-id>` instead of a correction plan.
 - **Re-run** a flaky validation **once** before believing a red.
-- **Throttle on measured contention** — baseline failure rate and task progress, lower `config.max_instances`, let extra agents
-  drain, re-measure both, and roll back if contention persists or progress stalls; restore a human-set cap once contention clears. Never kill
+- **Throttle on measured contention** — baseline failure rate and task progress; for heavy suites on a shared resource, cap their
+  class with `§BRAND_BINARY_NAME§ admission-limit set`, otherwise lower `config.max_instances` and let extra agents drain; re-measure both, and roll back if contention persists or progress stalls; restore a human-set cap once contention clears. Never kill
   processes or delete locks to relieve it.
 - **Contain retry storms** — on repeated equivalent failures (launch, setup or provider churn), `§BRAND_BINARY_NAME§ pause`, probe
   setup and provider health with bounded checks, and resume only a pause you own once the probe passes. Human

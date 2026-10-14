@@ -19,7 +19,8 @@ type preparedSubmission struct {
 	replay   *SubmitForReviewResult
 	refresh  func() []string
 	complete func() (*SubmitForReviewResult, error)
-	// acceptanceBatch is the canonical batch budget complete may spend.
+	// acceptanceBatch is the time complete may spend: the canonical batch
+	// budget, plus any admission slot wait still ahead of it.
 	acceptanceBatch time.Duration
 }
 
@@ -27,6 +28,8 @@ type submissionInvocation struct {
 	task        *models.Task
 	effects     bool
 	preparation *models.LifecyclePreparation
+	// admission is what pre-admission settled; nil when state was unreadable.
+	admission *submissionAdmission
 }
 
 // SubmitForReviewWithAuthorityAndOptions binds retries to the caller's original
@@ -72,6 +75,11 @@ func submitForReviewLifecycle(projectRoot, taskID, commitRef, agentID string, au
 	if agentID == "" {
 		return nil, &PreconditionError{Reason: fmt.Sprintf("%s is required", brand.EnvName("AGENT_ID"))}
 	}
+	invocation.admission, err = preAdmitSubmission(projectRoot, taskID, agentID, authority, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer invocation.admission.release()
 	err = WithProjectLifecycleSharedLock(projectRoot, integrationOperationSubmitForReview, func() error {
 		lock := filelock.New(claimTaskWorktreeLockPath(paths.New(projectRoot).StatePath(), taskID))
 		// Retirement usually follows a state-lock timeout, so it waits the
@@ -89,9 +97,10 @@ func submitForReviewLifecycle(projectRoot, taskID, commitRef, agentID string, au
 			result = prepared.replay
 			return nil
 		}
-		if authority != nil {
+		if authority != nil && (invocation.admission == nil || invocation.admission.removeMarker == nil) {
 			// Lets the agent's own supervisor hold its timeouts while this
 			// submit runs, up to the marker's fixed deadline (D-38).
+			// Pre-admission already wrote one covering its slot wait.
 			removeMarker := writeInflightSubmitMarker(projectRoot, *authority, taskID, prepared.acceptanceBatch, time.Now().UTC())
 			defer removeMarker()
 		}

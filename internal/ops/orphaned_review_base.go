@@ -450,7 +450,7 @@ func (h *orphanHeal) finish(observed *models.Task, request LifecycleRequest, old
 		return h.fail(observed, request, oldHead, deterministicHealRefusal(err), "acceptance input refused", err)
 	}
 	gate := runtimeInputGate{projectRoot: h.in.ProjectRoot, bb: h.bb, authority: h.in.Authority, actor: h.in.AgentID, operation: healOrphanedReviewBaseOperation}
-	receipt, err := executeAcceptanceReceipt(context.Background(), h.in.ProjectRoot, observed, acceptance, newHead, gate)
+	receipt, err := executeAcceptanceReceipt(context.Background(), h.in.ProjectRoot, observed, acceptance, newHead, gate, state.Config, nil)
 	if err != nil {
 		return h.fail(observed, request, oldHead, deterministicHealRefusal(err), "fresh acceptance evidence refused", err)
 	}
@@ -701,12 +701,16 @@ func sameOrphanHealBoundary(observed, live *models.Task) error {
 }
 
 // deterministicHealRefusal separates content refusals, which route to
-// integration recovery, from transient failures, which are retried.
+// integration recovery, from transient failures, which are retried. A full
+// admission class is contention, so it is transient.
 func deterministicHealRefusal(err error) bool {
 	var evidence *AcceptanceEvidenceError
 	var precondition *PreconditionError
 	var repair *ReviewBoundaryRepairNeededError
 	var worktree *lizaerrors.WorktreeContextError
+	if stderrors.As(err, &evidence) && evidence.Class == AcceptanceFaultAdmissionSlot {
+		return false
+	}
 	return stderrors.As(err, &evidence) || stderrors.As(err, &precondition) ||
 		stderrors.As(err, &repair) || stderrors.As(err, &worktree)
 }

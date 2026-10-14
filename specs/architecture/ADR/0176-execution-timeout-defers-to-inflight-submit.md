@@ -23,6 +23,11 @@ ordinary commands unchanged. `AGENT_TOOLS.md` tells agents to start
 runtime-input declaration of the variable still strips it (ADR-0169).
 Preparation retention after a kill is unchanged.
 
+Amended 2026-10-14 ([ADR-0209](0209-admission-limits.md)): a submit that must
+wait for an admission slot writes its marker before waiting, with window
+`AcceptanceMaxTimeoutSeconds` + 10 minutes: the wait plus the batch never exceed
+the acceptance cap, so the grace bound is unchanged.
+
 ## Context
 
 `submit-for-review` runs a strict task's canonical acceptance commands

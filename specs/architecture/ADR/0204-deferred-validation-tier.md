@@ -7,6 +7,10 @@ certify a deferral) and adds a gate to final integration closure
 ([ADR-0113](0113-sliced-integration-analysis-and-final-closure.md)). Resolves
 D-97 (a).
 
+Amended 2026-10-14 ([ADR-0209](0209-admission-limits.md)): each probe takes its
+command's admission slots from the pool canonical admission uses; a class that
+stays full aborts the batch with `admission_slot_wait_exceeded`.
+
 ## Context
 
 Strict admission (ADR-0134) runs every canonical command of a child at every

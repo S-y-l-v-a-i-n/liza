@@ -34,6 +34,9 @@ const (
 	// ledger instance (ADR-0169). Only an operator can record one, so it
 	// escalates at once like a content refusal, and no agent retry helps.
 	AcceptanceFaultRuntimeInput AcceptanceFault = "runtime_input"
+	// AcceptanceFaultAdmissionSlot is an admission limit whose class had no
+	// free slot in time (ADR-0209). No command ran; a later retry can pass.
+	AcceptanceFaultAdmissionSlot AcceptanceFault = "admission_slot"
 )
 
 // AcceptanceClaimObservation is what a refused claim validated against: the
@@ -74,6 +77,10 @@ func (e *AcceptanceEvidenceError) Error() string {
 		case e.BlockFailed:
 			message += fmt.Sprintf("; blocking the task failed, so run %s with this reason and stop", brand.Command("mark-blocked", e.TaskID))
 		}
+		return acceptanceExecutionMask(os.Environ())(message)
+	}
+	if e.Class == AcceptanceFaultAdmissionSlot {
+		message = fmt.Sprintf("task %s %s: %s — the operator's admission limit was full. No command ran and no review cycle was spent; do not change the evidence: retry the same commit", e.TaskID, e.Field, e.Reason)
 		return acceptanceExecutionMask(os.Environ())(message)
 	}
 	if e.Claim != nil {
@@ -828,9 +835,12 @@ func checkAcceptanceWorktree(root, taskID, commit string) error {
 
 // executeAcceptanceReceipt runs the strict gate. Runtime inputs are acquired
 // here, after every non-executing precondition, so a refused manifest or a
-// dirty worktree never spends a single_use input (ADR-0169). Cancelling ctx
-// stops the running command.
-func executeAcceptanceReceipt(ctx context.Context, root string, task *models.Task, input *acceptanceInput, commit string, gate runtimeInputGate) (*models.AcceptanceReceipt, error) {
+// dirty worktree never spends a single_use input (ADR-0169). Admission slots
+// of config's limits are taken just before, so a full class spends none
+// either; slots already in held (submit's pre-admission) stay the caller's to
+// release, otherwise they are released on return (ADR-0209). The batch budget
+// starts once they are held. Cancelling ctx stops the wait or the command.
+func executeAcceptanceReceipt(ctx context.Context, root string, task *models.Task, input *acceptanceInput, commit string, gate runtimeInputGate, config models.Config, held *admissionSlots) (*models.AcceptanceReceipt, error) {
 	receipt, err := prepareAcceptanceReceipt(root, task, input, commit)
 	if err != nil || receipt == nil {
 		return receipt, err
@@ -838,12 +848,19 @@ func executeAcceptanceReceipt(ctx context.Context, root string, task *models.Tas
 	if err := checkAcceptanceWorktree(root, task.ID, commit); err != nil {
 		return nil, err
 	}
+	commands, indices := input.executedCommands()
+	if held == nil {
+		held = newAdmissionSlots(input.batchTimeoutSeconds)
+		defer held.release()
+	}
+	if err := held.acquire(ctx, root, models.AdmissionLimitsFor(config, commands)); err != nil {
+		return nil, admissionSlotRefusal(task.ID, err)
+	}
 	grant, err := gate.acquire(task)
 	if err != nil {
 		return nil, err
 	}
-	commands, indices := input.executedCommands()
-	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), commands, indices, input.batchTimeoutSeconds, grant)
+	receipt.Commands, err = executeAcceptanceCommandsWith(ctx, task.ID, git.New(root).GetWorktreePath(task.ID), commands, indices, input.batchTimeoutSeconds, grant, held.files())
 	if err != nil {
 		return nil, acceptanceError(task.ID, "acceptance.execution", err.Error())
 	}

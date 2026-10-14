@@ -187,6 +187,7 @@ func resetCommandFlagsForTest(t *testing.T, cmd *cobra.Command) {
 		"record", "task", "input", "timeout",
 		"arch-ref", "provider-task", "transition",
 		"all", "trigger", "contract", "preserve-output-identity", "planning-change-kind", "planning-change-original",
+		"match", "max-concurrent",
 	} {
 		resetFlagIfPresent(cmd, name)
 	}

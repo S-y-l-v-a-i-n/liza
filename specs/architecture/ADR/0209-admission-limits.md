@@ -1,0 +1,92 @@
+# ADR-0209: Admission Limits for Heavy Canonical Commands
+
+## Status
+
+ACCEPTED — 2026-10-14. Amends ADR-0176 (the in-flight marker covers a slot wait) and ADR-0204 (the deferred runner shares the pool).
+
+## Context
+
+Every canonical batch starts as soon as its submit reaches execution, and the
+deferred-validation runner starts its probes independently. Nothing bounded how
+many heavy suites ran at once. When suites share a scarce resource (a database,
+host CPU), overlapping batches slow each other into their wall-clock budgets.
+In one run most budget blocks over two days came from this (D-153). The only
+levers were raising budgets, which delays the detection of real hangs by as
+much, and lowering `max_instances`, which caps sessions rather than suites.
+
+## Decision
+
+1. **Configuration.** `config.admission_limits` lists operator-defined classes:
+   `{class, max_concurrent, match[]}`. A canonical command belongs to a class
+   when its text contains any `match` substring. Operators manage it with
+   `admission-limit set|remove` (operator-only; replacing a different
+   definition needs `--replace --reason`). The engine infers nothing: classes
+   apply to tasks already reviewed, with no contract change.
+2. **Slots.** Per class, under `<runtime dir>/admission-slots/<class>/`,
+   `max_concurrent` exclusive flocks (`slot-<i>`). Waiters queue as flock-held
+   tickets in `queue/`, created and pruned under a short queue lock; only the
+   earliest live ticket tries the slots (FIFO). A ticket or slot whose holder
+   died is free, with no PID evidence. A batch matching several classes takes
+   them in class order under one deadline; a refusal releases all it holds.
+3. **Wait bound.** A wait plus the execution budget behind it never exceeds the
+   acceptance cap (`AcceptanceMaxTimeoutSeconds`): wait ≤ cap − budget. The
+   wait never counts against `timeout_seconds`; the batch clock starts once
+   the slots are held. `MaxInflightSubmitGrace`, the Claude command ceiling
+   and the INVARIANTS session bound are unchanged.
+4. **Canonical execution** (`executeAcceptanceReceipt`, used by submit,
+   `update-review-commit` and the orphaned-base heal) takes slots after the
+   non-executing preconditions and before runtime inputs are acquired, so a
+   full class spends no single-use input. A class that stays full is an
+   `acceptance.admission_slot` refusal (fault class `admission_slot`): no
+   command ran; retry the same commit. The heal treats it as transient.
+5. **Submit pre-admission.** Before any lock, preparation or rebase, a submit
+   whose task is executing loads its acceptance input read-only and waits for
+   its classes, under the ownership fence. Its in-flight marker is written
+   first, with window cap (+ grace). A full class returns `RETRYABLE`/`retry`
+   with effects `none`: nothing was prepared, so the same commit and request
+   ID are retried unchanged (no D-147 trap). A claim lost while waiting
+   returns `STATE_CHANGED`/`requery`, or the authority error. Execution then
+   uses the same limits snapshot and slots; a class pre-admission could not
+   know (the reviewed commands changed before the rebase, or could not be
+   loaded) is taken within the same deadline, and only that residual refusal
+   is post-effect.
+6. **Slots follow commands.** Each command inherits its slot descriptors
+   (`ExtraFiles`). If the owner is SIGKILLed, the running command keeps the
+   slot until it exits. On every normal return the owner unlocks, which also
+   unlocks inherited descriptors, so a lingering descendant cannot keep it.
+7. **Deferred runner.** Each probe (including bisect steps) takes its command's
+   slots from the same pool with the same bound, re-queuing behind waiting
+   submits between probes. A class that stays full aborts the batch with
+   reason `admission_slot_wait_exceeded`. Git and setup steps take no slot.
+   An orphaned probe leaves its slots with the survivors, like the runner lock.
+
+## Consequences
+
+- Heavy suites run at most `max_concurrent` at a time per class, in arrival
+  order; budgets no longer absorb contention. Unconfigured projects see no
+  change (no slot, same marker window).
+- A batch budgeted at the cap has no queue headroom: one try. Upgrade trigger:
+  admission-slot refusals on large-budget batches; then raise the grace
+  (ADR-0176) instead of sharing the cap.
+- Per-batch granularity: a batch holds its slot during its light commands too,
+  and a submit also during its rebase and index refresh.
+- Crash ceiling: a descendant that daemonized under a SIGKILLed owner holds the
+  slot until it exits; waiters then refuse at their deadline, naming the slot
+  directory where the holder can be found (`fuser`). On Windows descriptors
+  are not inherited, so a slot is held only while its owner lives.
+- The reviewer-supervisor heal can block for wait + batch, within the cap.
+- Lowering `max_concurrent` converges as current holders finish; removing a
+  class leaves current waiters waiting for the slots they knew.
+
+## Alternatives Considered
+
+- **Resource tag in the reviewed acceptance contract.** Explicit, but every
+  in-flight task would need re-review before the limit applied, and the count
+  still lives in configuration. Config matching can coexist with it later.
+- **A separate slot-wait cap with a larger grace (~8 h).** Gives cap-budget
+  batches queue room, but grows the session bound, the provider command
+  ceiling and the agent tool timeout. Deferred behind the trigger above.
+- **Waiting after the rebase, inside execution.** Simpler, but a refusal there
+  leaves a rebased worktree the same request cannot resubmit (D-147).
+- **Unordered polling.** Fewer lines, but the runner re-acquires between bisect
+  probes within microseconds and would starve waiting submits.

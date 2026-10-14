@@ -488,6 +488,7 @@ are loaded at runtime from the provider catalog.
 | `deferred_validation.batch_every_merges` | 5 | 1 | — | count | Forward merges per periodic deferred-validation batch (ADR-0204); set by editing state.yaml |
 | `deferred_validation.setup_timeout_seconds` | 1800 | 1 | — | seconds | Bound on `post_worktree_cmd` before each batch probe; set by editing state.yaml |
 | `deferred_validation.rulings` | (none) | — | — | list | Exact commands deferred at strict admission on operator authority; written only by `deferred-validation rule`/`unrule` |
+| `admission_limits` | (none) | 1 | 64 | list | Per class of command substrings, how many canonical commands execute at once; see [Admission limits](#admission-limits); written only by `admission-limit set`/`remove` |
 | `auto_checkpoint_summary` | true | — | — | boolean | Auto-runs checkpoint-summary when the sprint reaches a checkpoint and writes `§BRAND_PROJECT_DIRNAME§/checkpoint-summary.md` |
 | `scip_search` | (none) | — | — | language list | Durable allowlist of SCIP languages §BRAND_NAME_TITLE§ may index when `§BRAND_ENV_PREFIX§_ENABLE_SCIP_SEARCH` is truthy |
 
@@ -517,6 +518,34 @@ periodic read remains its cache-staleness backstop; the doer's mtime-based cache
 behavior is unchanged. Cancellation and absolute deadlines do not wait for a
 polling tick. This setting does not alter the foreground `POLL` slice length or
 the history-anchored total wait budget.
+
+### Admission limits
+
+When heavy suites share a scarce resource (a database, host CPU), cap how many
+of them run at once instead of raising budgets or lowering `max_instances`
+([ADR-0209](../specs/architecture/ADR/0209-admission-limits.md)):
+
+```bash
+§BRAND_BINARY_NAME§ admission-limit set db-suite --max-concurrent 2 --match=--decision-model-db
+§BRAND_BINARY_NAME§ get config.admission_limits --json
+§BRAND_BINARY_NAME§ admission-limit remove db-suite --reason "suites isolated"
+```
+
+A canonical command belongs to a class when its text contains any `--match`
+substring. Canonical admission (`submit-for-review`, `update-review-commit`,
+the orphaned-base heal) and every deferred-validation probe take a slot of each
+matching class first; waiters are served in arrival order. The wait never counts
+against `timeout_seconds`, and the wait plus that budget never exceed the 14400 s
+acceptance cap, so a batch budgeted at the cap gets a single try. A submit waits
+before it prepares or rebases; if the class stays full it returns `RETRYABLE`
+and the same submission is retried. The deferred runner aborts its batch with
+`admission_slot_wait_exceeded`. Changes apply to the next acquisition.
+
+Slots are flocks under `§BRAND_PROJECT_DIRNAME§/admission-slots/<class>/`, held
+by the running command too. If an owner is killed, the slot frees when its
+command exits; a command that daemonized keeps it until it exits (find it with
+`fuser §BRAND_PROJECT_DIRNAME§/admission-slots/<class>/slot-*.lock`). On Windows a slot is
+held only while its owner lives.
 
 ## Optional Tool Activation
 

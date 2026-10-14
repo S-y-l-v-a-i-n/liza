@@ -438,9 +438,20 @@ func prepareSubmitForReview(projectRoot, taskID, commitRef, agentID string, auth
 		return nil, err
 	}
 
+	// Pre-admission's limits snapshot and slots govern the batch; a class they
+	// lack is taken at execution, within the same deadline (ADR-0209).
+	admissionConfig, held := state.Config, (*admissionSlots)(nil)
+	if invocation.admission != nil {
+		admissionConfig, held = invocation.admission.config, invocation.admission.slots
+	}
 	var acceptanceBatch time.Duration
 	if acceptance != nil {
 		acceptanceBatch = acceptanceBatchTimeout(acceptance.batchTimeoutSeconds)
+		// A marker written after preparation must also cover a slot wait still
+		// ahead: wait and batch together stay within the cap.
+		if commands, _ := acceptance.executedCommands(); len(models.AdmissionLimitsFor(admissionConfig, commands)) > 0 {
+			acceptanceBatch += admissionSlotWait(acceptance.batchTimeoutSeconds)
+		}
 	}
 	return &preparedSubmission{
 		acceptanceBatch: acceptanceBatch,
@@ -477,7 +488,7 @@ func prepareSubmitForReview(projectRoot, taskID, commitRef, agentID string, auth
 			}
 			gate := runtimeInputGate{projectRoot: projectRoot, bb: bb, authority: authority, actor: agentID, operation: integrationOperationSubmitForReview}
 			fenceCtx, stopFence := startAcceptanceOwnershipFence(bb, taskID, expectedCurrentStatus, agentID, authority)
-			acceptanceReceipt, err := executeAcceptanceReceipt(fenceCtx, projectRoot, task, acceptance, postRebaseCommit, gate)
+			acceptanceReceipt, err := executeAcceptanceReceipt(fenceCtx, projectRoot, task, acceptance, postRebaseCommit, gate, admissionConfig, held)
 			if stopFence() {
 				return nil, &LifecycleError{Outcome: NewLifecycleOutcome(request.Operation, invocation.task, models.LifecycleStateChanged, "requery", "unknown"), Err: fmt.Errorf("submission ownership lost during canonical validation; validation stopped")}
 			}

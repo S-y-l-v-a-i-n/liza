@@ -51,6 +51,12 @@ const (
 	// deferredValidationReasonUnstoppable ends a batch whose step left
 	// processes the runner could not establish had ended.
 	deferredValidationReasonUnstoppable = "descendants_unstoppable"
+	// deferredValidationReasonAdmissionSlotWait ends a batch whose probe found
+	// its admission class full until its wait bound (ADR-0209).
+	deferredValidationReasonAdmissionSlotWait = "admission_slot_wait_exceeded"
+	// deferredValidationReasonAdmissionSlotError ends a batch whose probe could
+	// not use its admission slot files.
+	deferredValidationReasonAdmissionSlotError = "admission_slot_error"
 )
 
 // errDeferredValidationHalted marks a start refused by a halt or stop.
@@ -580,6 +586,9 @@ type deferredValidationRunner struct {
 	// orphaned is set once a step's descendants could not be shown to have
 	// ended; no further process starts and the lock stays with them.
 	orphaned bool
+	// abortReason names why a probe halted the current batch when that was
+	// its admission slot, not a halt or stop.
+	abortReason string
 }
 
 // claim records this invocation's token. A record left by another token is a
@@ -745,8 +754,9 @@ type execResult struct {
 // runner lock unlocks the description the descendants share. A descendant
 // that leaves the group (setsid) escapes this; validation commands must not
 // daemonize. When the group cannot be emptied, the step ends as a halt and no
-// later step starts.
-func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duration, admit bool, build func(context.Context) (*exec.Cmd, error)) execResult {
+// later step starts. The step also inherits extra, a probe's admission slots
+// (ADR-0209).
+func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duration, admit bool, build func(context.Context) (*exec.Cmd, error), extra ...*os.File) execResult {
 	if r.orphaned {
 		return execResult{exitCode: -1, err: errDeferredValidationUnstoppable, halted: true}
 	}
@@ -761,6 +771,7 @@ func (r *deferredValidationRunner) run(ctx context.Context, timeout time.Duratio
 	if r.lockFile != nil {
 		cmd.ExtraFiles = []*os.File{r.lockFile}
 	}
+	cmd.ExtraFiles = append(cmd.ExtraFiles, extra...)
 	configProcessGroupKill(cmd)
 	cmd.WaitDelay = 5 * time.Second
 	if admit {
@@ -911,12 +922,32 @@ func (r *deferredValidationRunner) checkClean(ctx context.Context, rev string, a
 
 // probe runs one command at the prepared worktree and classifies it. With
 // keepOutput, a failure's full masked output is stored and referenced; bisect
-// steps keep only their status, so they store nothing.
-func (r *deferredValidationRunner) probe(ctx context.Context, rev string, command models.DeferredValidationCommand, keepOutput bool) (models.DeferredValidationResult, bool) {
-	result := models.DeferredValidationResult{Command: r.mask(command.Command), CommandSHA256: command.CommandSHA256, ExitCode: -1, StartedAt: time.Now().UTC()}
+// steps keep only their status, so they store nothing. The command first takes
+// the admission slots of config's limits it matches, from the pool canonical
+// admission shares; a class that stays full aborts the batch (ADR-0209).
+func (r *deferredValidationRunner) probe(ctx context.Context, config models.Config, rev string, command models.DeferredValidationCommand, keepOutput bool) (models.DeferredValidationResult, bool) {
+	result := models.DeferredValidationResult{Command: r.mask(command.Command), CommandSHA256: command.CommandSHA256, ExitCode: -1}
+	slots := newAdmissionSlots(command.TimeoutSeconds)
+	if err := slots.acquire(ctx, r.root, models.AdmissionLimitsFor(config, []string{command.Command})); err != nil {
+		var wait *AdmissionSlotWaitError
+		switch {
+		case !errors.As(err, &wait):
+			r.abortReason = deferredValidationReasonAdmissionSlotError
+		case wait.Err == nil:
+			r.abortReason = deferredValidationReasonAdmissionSlotWait
+		}
+		result.Status = models.DeferredValidationResultNotRun
+		return result, true
+	}
+	result.StartedAt = time.Now().UTC()
 	res := r.run(ctx, time.Duration(command.TimeoutSeconds)*time.Second, true, func(ctx context.Context) (*exec.Cmd, error) {
 		return shellCommandContext(ctx, command.Command, r.worktree)
-	})
+	}, slots.files()...)
+	if r.orphaned {
+		slots.abandon() // The slots stay with the descendants, like the runner lock.
+	} else {
+		slots.release()
+	}
 	result.FinishedAt = time.Now().UTC()
 	if res.halted {
 		result.Status = models.DeferredValidationResultNotRun
@@ -1014,6 +1045,7 @@ func (r *deferredValidationRunner) execute(ctx context.Context, state *models.St
 	ledger := deferredValidationLedger(state)
 	commands := ledger.EffectiveCommands()
 	batch := models.DeferredValidationBatch{Commit: head, StartedAt: time.Now().UTC(), Forced: forced}
+	r.abortReason = ""
 	finish := func(status models.DeferredValidationBatchStatus, reason string) models.DeferredValidationBatch {
 		for _, command := range commands[len(batch.Results):] {
 			batch.Results = append(batch.Results, models.DeferredValidationResult{Command: r.mask(command.Command), CommandSHA256: command.CommandSHA256, Status: models.DeferredValidationResultNotRun, ExitCode: -1})
@@ -1022,6 +1054,8 @@ func (r *deferredValidationRunner) execute(ctx context.Context, state *models.St
 			// Nothing a batch observed is certified once a step's processes
 			// may still run.
 			status, reason = models.DeferredValidationBatchAborted, deferredValidationReasonUnstoppable
+		} else if status == models.DeferredValidationBatchAborted && r.abortReason != "" {
+			reason = r.abortReason
 		}
 		batch.Status, batch.Reason, batch.FinishedAt = status, reason, time.Now().UTC()
 		return batch
@@ -1041,7 +1075,7 @@ func (r *deferredValidationRunner) execute(ctx context.Context, state *models.St
 	var failed []models.DeferredValidationCommand
 	contaminated := false
 	for i, command := range commands {
-		result, halted := r.probe(ctx, head, command, true)
+		result, halted := r.probe(ctx, state.Config, head, command, true)
 		if halted {
 			return finish(models.DeferredValidationBatchAborted, "halted")
 		}
@@ -1158,7 +1192,7 @@ func (r *deferredValidationRunner) bisect(ctx context.Context, state *models.Sta
 		if res := r.prepareProbe(ctx, state, rev); res.halted {
 			return status, true
 		} else if res.err == nil {
-			result, halted := r.probe(ctx, rev, command, false)
+			result, halted := r.probe(ctx, state.Config, rev, command, false)
 			if halted {
 				return status, true
 			}

@@ -125,6 +125,14 @@ lowered and never above the 14400 s cap. The same budget sets the in-flight
 submit marker deadline. Receipts and `deferred[].timeout_seconds` keep the
 reviewed value ([ADR-0207](../architecture/ADR/0207-admission-budget-exceptions.md)).
 
+When an executed command matches a `config.admission_limits` class, the batch
+first waits for that class's slot, before runtime inputs are acquired. The
+budget starts once the slots are held; the wait is at most the cap minus the
+budget, and the marker then covers wait and batch (cap + grace). A submit waits
+before preparing or rebasing; a class that stays full refuses
+`acceptance.admission_slot` as `RETRYABLE` with no effects, and the same
+submission is retried ([ADR-0209](../architecture/ADR/0209-admission-limits.md)).
+
 Failed execution returns the failing command's combined stdout/stderr in the
 error, masked before an 8 KiB excerpt limit and explicitly marked if truncated.
 Timeout and output-limit errors return no excerpt, since incomplete capture may

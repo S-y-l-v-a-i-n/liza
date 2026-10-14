@@ -133,6 +133,16 @@ func TestNonDefaultBrandReleaseBlockedChainHelp(t *testing.T) {
 	assertNoDefaultBrandLeaks(t, "release-blocked-chain help", help)
 }
 
+func TestNonDefaultBrandAdmissionLimitHelp(t *testing.T) {
+	bin := buildNonDefaultBrandBinary(t)
+	help := runBrandSmokeCommand(t, bin, "admission-limit", "--help")
+	assertContains(t, help, "acme-agent get config.admission_limits")
+	assertNoDefaultBrandLeaks(t, "admission-limit help", help)
+	help = runBrandSmokeCommand(t, bin, "admission-limit", "set", "--help")
+	assertContains(t, help, "acme-agent admission-limit set db-suite")
+	assertNoDefaultBrandLeaks(t, "admission-limit set help", help)
+}
+
 func TestNonDefaultBrandReserveProviderHelp(t *testing.T) {
 	bin := buildNonDefaultBrandBinary(t)
 	help := runBrandSmokeCommand(t, bin, "reserve-provider", "--help")

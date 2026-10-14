@@ -29,7 +29,7 @@ var errAcceptanceOutputLimit = errors.New("acceptance execution output limit exc
 // executeAcceptanceCommands returns trusted executions only when every command
 // passes, and nil results on any error. Callers own immutable input validation.
 func executeAcceptanceCommands(taskID, worktree string, commands []string, timeoutSeconds int) ([]models.AcceptanceCommandResult, error) {
-	return executeAcceptanceCommandsWith(context.Background(), taskID, worktree, commands, nil, timeoutSeconds, nil)
+	return executeAcceptanceCommandsWith(context.Background(), taskID, worktree, commands, nil, timeoutSeconds, nil, nil)
 }
 
 // acceptanceBatchTimeout is the batch budget a contract's timeout_seconds
@@ -48,8 +48,9 @@ func acceptanceBatchTimeout(timeoutSeconds int) time.Duration {
 // is applied before any result, excerpt or error is built. Cancelling ctx
 // kills the running command's process group like the batch timeout does.
 // indices[i] is commands[i]'s canonical validation index, which diagnostics
-// name; nil means commands is the whole canonical list.
-func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string, commands []string, indices []int, timeoutSeconds int, grant *runtimeInputGrant) ([]models.AcceptanceCommandResult, error) {
+// name; nil means commands is the whole canonical list. Every command inherits
+// the admission slot descriptors in inherit (ADR-0209).
+func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string, commands []string, indices []int, timeoutSeconds int, grant *runtimeInputGrant, inherit []*os.File) ([]models.AcceptanceCommandResult, error) {
 	environ := os.Environ()
 	masked := environ
 	if grant != nil {
@@ -90,6 +91,7 @@ func executeAcceptanceCommandsWith(ctx context.Context, taskID, worktree string,
 		}
 		cmd.Stdout, cmd.Stderr = output, output
 		cmd.Env = grant.commandEnvironment(environ, command)
+		cmd.ExtraFiles = inherit
 		configProcessGroupKill(cmd)
 		cmd.WaitDelay = 5 * time.Second
 		err = cmd.Run()
