@@ -207,11 +207,20 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	failAs := func(class AcceptanceFault, reason string) (*acceptanceInput, error) {
 		return nil, &AcceptanceEvidenceError{TaskID: task.ID, Field: "acceptance.source", Reason: reason, Class: class}
 	}
-	// fail is for sites that read Git and cannot tell a failed read from a
-	// refusal; content and allocation name the sites that can.
+	// fail is for a failed Git read; content and allocation name the sites
+	// that refuse what they read.
 	fail := func(reason string) (*acceptanceInput, error) { return failAs("", reason) }
 	content := func(reason string) (*acceptanceInput, error) { return failAs(AcceptanceFaultContent, reason) }
 	allocation := func(reason string) (*acceptanceInput, error) { return failAs(AcceptanceFaultAllocation, reason) }
+	// readRefusal classifies a bounded-reader error: the reader's own refusal
+	// is content, anything else a failed read.
+	readRefusal := func(reason string, err error) (*acceptanceInput, error) {
+		var refused *acceptanceArtifactRefusal
+		if errors.As(err, &refused) {
+			return content(reason)
+		}
+		return fail(reason)
+	}
 	if ref == "" {
 		if task.AcceptanceSource != nil {
 			return content("adopted source reference was removed")
@@ -242,7 +251,7 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	}
 	carrier, _, err := readAcceptanceEntry(g, path, entry, present, nil)
 	if err != nil {
-		return fail(err.Error())
+		return readRefusal(err.Error(), err)
 	}
 	contract, err := referencecontract.ParseAcceptance(carrier, heading)
 	if err != nil {
@@ -277,7 +286,7 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 		revision := direct.EffectiveRevision(refs.SourceRevision)
 		span, _, err := readReferenceBlob(root, revision, direct.Path)
 		if err != nil {
-			return fail("cannot resolve pinned reference " + direct.ID)
+			return readRefusal("cannot resolve pinned reference "+direct.ID+": "+err.Error(), err)
 		}
 		if _, err := referenceSection(span, direct.Heading); err != nil {
 			var heading *referencecontract.HeadingMatchError
@@ -764,6 +773,13 @@ func sameBlobAt(g *git.Git, commitA, commitB, path string) bool {
 	return oids[0].Err == nil && oids[1].Err == nil && oids[0].OID == oids[1].OID
 }
 
+// acceptanceArtifactRefusal is a readBoundedBlob refusal decided by the path
+// or the committed tree entry, so an unchanged commit is refused identically.
+// Any other reader error is a failed Git read.
+type acceptanceArtifactRefusal struct{ reason string }
+
+func (r *acceptanceArtifactRefusal) Error() string { return r.reason }
+
 // readAcceptanceBlob bounds the object before reading it and never consults
 // the worktree or follows symlinks. Used for carriers and manifests; Direct
 // Reference targets go through readReferenceBlob.
@@ -779,7 +795,7 @@ func readReferenceBlob(root, commit, path string) (string, string, error) {
 
 func readBoundedBlob(root, commit, path string, limit int64) (string, string, error) {
 	if err := referencecontract.ValidateAcceptancePath(path); err != nil {
-		return "", "", fmt.Errorf("invalid acceptance artifact path")
+		return "", "", &acceptanceArtifactRefusal{"invalid acceptance artifact path"}
 	}
 	g := git.New(root)
 	// One ls-tree reports mode, type, object ID and size together; the blob
@@ -800,17 +816,17 @@ func readBoundedEntry(g *git.Git, path string, entry git.TreeEntry, present bool
 		return "", "", fmt.Errorf("cannot inspect acceptance artifact: %s: %w", path, err)
 	}
 	if !present || (entry.Mode != "100644" && entry.Mode != "100755") {
-		return "", "", fmt.Errorf("acceptance artifact must be a present regular committed file: %s", path)
+		return "", "", &acceptanceArtifactRefusal{"acceptance artifact must be a present regular committed file: " + path}
 	}
 	if entry.Type != "blob" || entry.OID == "" {
-		return "", "", fmt.Errorf("cannot resolve acceptance artifact: %s", path)
+		return "", "", &acceptanceArtifactRefusal{"cannot resolve acceptance artifact: " + path}
 	}
 	blob := entry.OID
 	if entry.Size < 0 {
-		return "", "", fmt.Errorf("acceptance artifact cannot be sized: %s", path)
+		return "", "", &acceptanceArtifactRefusal{"acceptance artifact cannot be sized: " + path}
 	}
 	if entry.Size > limit {
-		return "", "", fmt.Errorf("acceptance artifact exceeds %d KiB: %s", limit/1024, path)
+		return "", "", &acceptanceArtifactRefusal{fmt.Sprintf("acceptance artifact exceeds %d KiB: %s", limit/1024, path)}
 	}
 	content, err := g.ReadBlobObject(blob)
 	if err != nil {

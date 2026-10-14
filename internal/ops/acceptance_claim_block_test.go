@@ -87,6 +87,77 @@ func TestAcceptanceRefusalClassifiedAtOrigin(t *testing.T) {
 			t.Fatalf("unreadable integration = %#v, want the unclassified read failure", err)
 		}
 	})
+	// D-170: the presence checks of the bounded reader repeat for an unchanged
+	// commit, so they are content refusals naming the reader's reason; only a
+	// failed Git read stays unclassified. The size bounds are classified in
+	// acceptance_reference_bound_test.go.
+	for _, tc := range []struct {
+		name   string
+		repo   func(t *testing.T, root string)
+		want   AcceptanceFault
+		reason []string
+	}{
+		{"pinned reference missing", func(t *testing.T, root string) {
+			rewriteAcceptanceCarrier(t, root, `"specs/acceptance-goal.md#Identity"`, `"specs/missing-goal.md#Identity"`)
+		}, AcceptanceFaultContent, []string{"cannot resolve pinned reference identity", "present regular committed file"}},
+		{"pinned reference not a regular file", func(t *testing.T, root string) {
+			if err := os.Symlink("acceptance-goal.md", filepath.Join(root, "specs/acceptance-link.md")); err != nil {
+				t.Fatal(err)
+			}
+			testhelpers.MustGit(t, root, "add", "specs/acceptance-link.md")
+			testhelpers.MustGit(t, root, "commit", "-m", "test: link the acceptance goal")
+			linked := testhelpers.MustGit(t, root, "rev-parse", "HEAD")
+			rewriteAcceptanceCarrier(t, root, `"specs/acceptance-goal.md#Identity"`, `"specs/acceptance-link.md#Identity"`)
+			repinAcceptanceSource(t, root, linked)
+		}, AcceptanceFaultContent, []string{"cannot resolve pinned reference identity", "present regular committed file"}},
+		{"pinned revision unreadable", func(t *testing.T, root string) {
+			repinAcceptanceSource(t, root, strings.Repeat("0", 40))
+		}, "", []string{"cannot resolve pinned reference identity"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root, taskID, _, agentID, bb := completeAcceptanceScenario(t)
+			resetAcceptanceTaskForClaim(t, bb, taskID, agentID, nil)
+			tc.repo(t, root)
+			refusal := refuseAcceptanceClaim(t, root, taskID, agentID)
+			if refusal.Class != tc.want {
+				t.Fatalf("class = %q (%s), want %q", refusal.Class, refusal.Reason, tc.want)
+			}
+			for _, part := range tc.reason {
+				if !strings.Contains(refusal.Reason, part) {
+					t.Fatalf("reason = %q, want it to contain %q", refusal.Reason, part)
+				}
+			}
+		})
+	}
+}
+
+// rewriteAcceptanceCarrier commits the scenario's carrier with its first old
+// replaced by replacement.
+func rewriteAcceptanceCarrier(t *testing.T, root, old, replacement string) {
+	t.Helper()
+	plan, err := os.ReadFile(filepath.Join(root, "specs/acceptance-plan.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plan), old) {
+		t.Fatalf("carrier lacks %q", old)
+	}
+	writeAndCommit(t, root, "specs/acceptance-plan.md", strings.Replace(string(plan), old, replacement, 1), "test: rewrite the acceptance carrier")
+}
+
+// repinAcceptanceSource commits the scenario's carrier with its Source
+// revision moved to revision.
+func repinAcceptanceSource(t *testing.T, root, revision string) {
+	t.Helper()
+	plan, err := os.ReadFile(filepath.Join(root, "specs/acceptance-plan.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned := sourceRevisionLine.FindString(string(plan))
+	if pinned == "" {
+		t.Fatal("carrier has no Source revision")
+	}
+	rewriteAcceptanceCarrier(t, root, pinned, fmt.Sprintf("Source revision: %q", revision))
 }
 
 // The observation changes with every state input acceptance reads, and only
@@ -173,6 +244,25 @@ func TestBlockAcceptanceRefusedTask_ContentRefusalBlocksOnce(t *testing.T) {
 		t.Fatalf("second escalation = %v, %v; want a no-op", again, err)
 	}
 	requireAcceptanceStateUnchanged(t, bb, before)
+}
+
+// D-170: a pinned reference file over its cap blocks the task on its first
+// refusal, and the blocked reason names the cap.
+func TestBlockAcceptanceRefusedTask_OversizedReference(t *testing.T) {
+	root, taskID, _, agentID, bb := completeAcceptanceScenario(t)
+	resetAcceptanceTaskForClaim(t, bb, taskID, agentID, nil)
+	repinAcceptanceGoal(t, root, padReferenceFile(boundGoal(smallIdentitySection, "\n"), referenceFileBound+1))
+	refusal := refuseAcceptanceClaim(t, root, taskID, agentID)
+
+	blocked, err := BlockAcceptanceRefusedTask(root, acceptanceCoderAuthority(agentID), refusal)
+	if err != nil || !blocked {
+		t.Fatalf("BlockAcceptanceRefusedTask() = %v, %v; want blocked", blocked, err)
+	}
+	task := readAcceptanceState(t, bb).FindTask(taskID)
+	if task.Status != models.TaskStatusBlocked || task.BlockedReason == nil ||
+		!strings.HasPrefix(*task.BlockedReason, "acceptance_evidence_invalid: ") || !strings.Contains(*task.BlockedReason, fmt.Sprintf("exceeds %d KiB", referenceFileBound/1024)) {
+		t.Fatalf("blocked task = %s %v", task.Status, task.BlockedReason)
+	}
 }
 
 // A refusal is escalated only while it is current: every supported repair,

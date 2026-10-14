@@ -98,7 +98,7 @@ func TestAcceptanceReferenceBoundAppliesToCitedSection(t *testing.T) {
 			goal: boundGoal(boundIdentitySection(referenceSectionBound, "\r\n"), "\r\n"), identity: boundIdentitySection(referenceSectionBound, "\n")},
 		{name: "file over the cap",
 			goal:  padReferenceFile(boundGoal(smallIdentitySection, "\n"), referenceFileBound+1),
-			class: "", reason: []string{"cannot resolve pinned reference identity"}},
+			class: AcceptanceFaultContent, reason: []string{"cannot resolve pinned reference identity", fmt.Sprintf("exceeds %d KiB", referenceFileBound/1024)}},
 		{name: "section over the bound",
 			goal:  boundGoal(boundIdentitySection(referenceSectionBound+1, "\n"), "\n"),
 			class: AcceptanceFaultContent, reason: []string{"identity", fmt.Sprint(referenceSectionBound + 1), fmt.Sprint(referenceSectionBound)}},
@@ -161,8 +161,8 @@ func TestAcceptanceCarrierKeepsItsWholeFileBound(t *testing.T) {
 	_, err = loadAcceptanceInput(root, state, state.FindTask(taskID), testhelpers.MustGit(t, root, "rev-parse", "integration"))
 
 	var refusal *AcceptanceEvidenceError
-	if !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "exceeds 256 KiB") {
-		t.Fatalf("loadAcceptanceInput() error = %v; want the carrier refused at 256 KiB", err)
+	if !errors.As(err, &refusal) || !strings.Contains(refusal.Reason, "exceeds 256 KiB") || refusal.Class != AcceptanceFaultContent {
+		t.Fatalf("loadAcceptanceInput() error = %v; want the carrier refused at 256 KiB as a content fault", err)
 	}
 }
 

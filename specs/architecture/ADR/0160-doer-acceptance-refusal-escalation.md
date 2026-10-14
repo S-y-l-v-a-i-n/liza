@@ -112,3 +112,13 @@ already bound the loop.
 **Reject invalid acceptance at task creation (D52).** Complementary, not a
 substitute: it cannot catch integration drift after creation or an adopted
 source that later disappears.
+
+## Amendment (2026-10-14)
+
+The bounded acceptance reader refuses a carrier or pinned reference that is
+missing, not a regular file or over its size bound, deciding from a tree entry
+it read successfully. Those refusals were reported as unclassified read
+failures, so a plan pinning an oversized README looped silently on every claim
+(D-170). They are now content faults, and a pinned-reference refusal carries
+the reader's reason after the reference ID. Unclassified now means a failed Git
+read only.
