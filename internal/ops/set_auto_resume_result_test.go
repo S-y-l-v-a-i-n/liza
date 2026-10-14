@@ -25,7 +25,7 @@ func autoResumeLogicalState(t *testing.T, state *models.State) map[string]any {
 	if err := yaml.Unmarshal(data, &result); err != nil {
 		t.Fatal(err)
 	}
-	// Main's publication counter is native bookkeeping; v0.9.1 has none.
+	// The publication counter is native bookkeeping, not execution state.
 	delete(result, "mutation_sequence")
 	delete(result["config"].(map[string]any), "auto_resume")
 	return result

@@ -20,7 +20,6 @@ type AutoResumeConfigResult struct {
 }
 
 // SetAutoResume sets the auto_resume config flag. Idempotent.
-// Keep the existing error-only API for native callers.
 func SetAutoResume(projectRoot string, enabled bool) error {
 	_, err := SetAutoResumeWithResult(projectRoot, enabled)
 	return err
