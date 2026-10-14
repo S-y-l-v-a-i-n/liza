@@ -51,8 +51,14 @@ output entry's declarations.
 
 An empty non-executable argument is valid. Probes must be cheap, safe to repeat,
 and scoped to prerequisite checks rather than full suites. Each probe has a
-10-second deadline; all checks together have a 30-second deadline. Probe stdout
-and stderr are discarded at the process boundary, including failures.
+deadline of `config.validation_preflight.probe_timeout_seconds` (default 60)
+and all checks together `config.validation_preflight.timeout_seconds` (default
+120); a probe never outlasts the total. A check run inside a provider tool call
+(await-resubmission reclaim, in-session ops) is capped at 30 seconds in total,
+whatever the configuration, to fit the await call's foreground headroom; a
+failure there releases the reservation and the supervisor's own claim checks
+with the full budget. Probe stdout and stderr are discarded at the process
+boundary, including failures.
 
 ## Adoption in planning
 

@@ -224,6 +224,8 @@ type Config struct {
 	// AdmissionLimits caps how many canonical commands of each resource class
 	// execute at once (ADR-0209). Operator-only; empty means no limit.
 	AdmissionLimits []AdmissionLimit `yaml:"admission_limits,omitempty"`
+	// ValidationPreflight sets the validation-prerequisite probe deadlines.
+	ValidationPreflight *ValidationPreflightConfig `yaml:"validation_preflight,omitempty"`
 	// AutoCheckpointSummary controls whether the runtime auto-invokes the
 	// checkpoint-summary skill against a task that just reached MERGED and
 	// writes the result to the project runtime directory. Default (nil) is ON.

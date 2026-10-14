@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -535,4 +536,115 @@ func TestValidationPreflightArtifactPolicyExplainsUnsupportedVersion(t *testing.
 	if !strings.Contains(err.Error(), "validation artifacts are not implemented in this version") {
 		t.Fatalf("missing explicit unsupported-artifact guidance: %v", err)
 	}
+}
+
+// runSlowProbePreflight runs a supervisor-session preflight whose probes each
+// succeed after sleep, so only a deadline can fail them. Non-nil limits are
+// written as the state.yaml `config.validation_preflight` section.
+func runSlowProbePreflight(t *testing.T, sleep time.Duration, probes int, limits *models.ValidationPreflightConfig) (time.Duration, error) {
+	t.Helper()
+	f := newSlowProbeFixture(t, probes, limits)
+	session := f.session(true)
+	session.Environment = append(session.Environment, slowProbeSleepEnv+"="+strconv.FormatInt(sleep.Milliseconds(), 10), slowProbeRaceEnv)
+	start := time.Now()
+	_, err := PrepareValidationPreflight(f.root, "task-1", f.authority.ID, "", session)
+	return time.Since(start), err
+}
+
+const slowProbeSleepEnv = "OPS_PREFLIGHT_SLEEP_MS"
+
+// slowProbeRaceEnv drops the race runtime's default 1 s exit delay from the
+// probe child, so a -race build keeps the probe's runtime equal to its sleep.
+const slowProbeRaceEnv = "GORACE=atexit_sleep_ms=0"
+
+func newSlowProbeFixture(t *testing.T, probes int, limits *models.ValidationPreflightConfig) assignmentPreflightFixture {
+	t.Helper()
+	f := newAssignmentPreflightFixture(t, models.TaskStatusImplementing)
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.bb.Modify(func(s *models.State) error {
+		argv := make([][]string, probes)
+		for i := range argv {
+			argv[i] = []string{binary, "-test.run=^TestValidationPreflightSlowProbe$"}
+		}
+		s.FindTask("task-1").ValidationPrerequisites[0].Probes = argv
+		s.Config.ValidationPreflight = limits
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func requireProbeTimeoutAt(t *testing.T, err error, check int) {
+	t.Helper()
+	var failure *sessionvalidation.Error
+	if !errors.As(err, &failure) || failure.Code != "probe_timeout" || failure.CheckIndex != check {
+		t.Fatalf("want probe_timeout at check %d, got %v", check, err)
+	}
+}
+
+// D-163: healthy probes slower than the former fixed 10 s per-probe and 30 s
+// whole-check deadlines pass under the default configuration.
+func TestValidationPreflightDefaultAllowsSlowHealthyProbes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs three 11 s probes")
+	}
+	t.Parallel()
+	if elapsed, err := runSlowProbePreflight(t, 11*time.Second, 3, nil); err != nil {
+		t.Fatalf("slow healthy probes failed after %s: %v", elapsed, err)
+	}
+}
+
+func TestValidationPreflightConfiguredProbeTimeout(t *testing.T) {
+	t.Parallel()
+	elapsed, err := runSlowProbePreflight(t, 3*time.Second, 1, &models.ValidationPreflightConfig{ProbeTimeoutSeconds: 1})
+	requireProbeTimeoutAt(t, err, 0)
+	if elapsed >= 3*time.Second {
+		t.Fatalf("configured probe deadline ignored: waited %s", elapsed)
+	}
+}
+
+func TestValidationPreflightConfiguredTotalTimeout(t *testing.T) {
+	t.Parallel()
+	elapsed, err := runSlowProbePreflight(t, 2*time.Second, 2, &models.ValidationPreflightConfig{ProbeTimeoutSeconds: 5, TimeoutSeconds: 3})
+	requireProbeTimeoutAt(t, err, 1)
+	if elapsed >= 4*time.Second {
+		t.Fatalf("configured total deadline ignored: waited %s", elapsed)
+	}
+}
+
+// An in-session check runs inside a provider tool call, so a configured total
+// above the in-session ceiling cannot extend it past 30 s.
+func TestValidationPreflightInSessionCeiling(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits for the 30 s in-session ceiling")
+	}
+	f := newSlowProbeFixture(t, 1, &models.ValidationPreflightConfig{ProbeTimeoutSeconds: 60, TimeoutSeconds: 120})
+	t.Setenv(brand.EnvName("AGENT_ID"), f.authority.ID)
+	t.Setenv(brand.EnvName("AGENT_GENERATION"), f.authority.Generation)
+	t.Setenv("VALIDATION_TEST_REQUIRED", "fixture-value")
+	t.Setenv(slowProbeSleepEnv, "40000")
+	start := time.Now()
+	_, err := PrepareValidationPreflight(f.root, "task-1", f.authority.ID, "", nil)
+	requireProbeTimeoutAt(t, err, 0)
+	if elapsed := time.Since(start); elapsed >= 35*time.Second {
+		t.Fatalf("in-session check exceeded its ceiling: %s", elapsed)
+	}
+}
+
+// TestValidationPreflightSlowProbe is the slow-success probe: it sleeps for
+// OPS_PREFLIGHT_SLEEP_MS and exits 0.
+func TestValidationPreflightSlowProbe(t *testing.T) {
+	value := os.Getenv(slowProbeSleepEnv)
+	if value == "" {
+		return
+	}
+	ms, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Duration(ms) * time.Millisecond)
 }

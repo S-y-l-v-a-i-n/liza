@@ -57,13 +57,13 @@ func TestPreflightEnvironmentOverlayAndFingerprint(t *testing.T) {
 func TestPreflightRequiredEnvironmentRepair(t *testing.T) {
 	contract := []models.ValidationPrerequisite{{Command: "validate", Env: []string{"REQUIRED_VALUE"}}}
 	for _, env := range [][]string{nil, {"REQUIRED_VALUE="}, {"REQUIRED_VALUE=present", "REQUIRED_VALUE="}} {
-		err := Check(context.Background(), []string{"validate"}, contract, t.TempDir(), env)
+		err := Check(context.Background(), []string{"validate"}, contract, t.TempDir(), env, 0, 0)
 		assertPreflightCode(t, err, "environment_missing")
 		if !strings.Contains(err.Error(), "REQUIRED_VALUE") {
 			t.Fatal("missing safe variable name")
 		}
 	}
-	if err := Check(context.Background(), []string{"validate"}, contract, t.TempDir(), []string{"REQUIRED_VALUE=repaired"}); err != nil {
+	if err := Check(context.Background(), []string{"validate"}, contract, t.TempDir(), []string{"REQUIRED_VALUE=repaired"}, 0, 0); err != nil {
 		t.Fatalf("repaired context rejected: %v", err)
 	}
 }
@@ -94,7 +94,7 @@ func TestPreflightUsesSelectedPathAndWorktree(t *testing.T) {
 		{"ready", ""},
 	} {
 		env := []string{"PATH=" + tc.path, "SESSION_VALUE=expected"}
-		err := Check(context.Background(), []string{"validate"}, contract, root, env)
+		err := Check(context.Background(), []string{"validate"}, contract, root, env, 0, 0)
 		if tc.code == "" {
 			if err != nil {
 				t.Fatalf("repaired interpreter failed: %v", err)
@@ -143,7 +143,7 @@ func TestPreflightProbeFailureOutputAndTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	contract := []models.ValidationPrerequisite{{Command: "validate", Probes: [][]string{{binary, "-test.run=^TestPreflightProcess$"}}}}
-	err = Check(context.Background(), []string{"validate"}, contract, t.TempDir(), []string{"SESSION_PREFLIGHT_HELPER=noisy"})
+	err = Check(context.Background(), []string{"validate"}, contract, t.TempDir(), []string{"SESSION_PREFLIGHT_HELPER=noisy"}, 0, 0)
 	assertPreflightCode(t, err, "probe_failed")
 	if strings.Contains(err.Error(), "CANARY") || strings.Contains(err.Error(), binary) {
 		t.Fatal("probe diagnostics disclosed child output or executable")
@@ -151,7 +151,7 @@ func TestPreflightProbeFailureOutputAndTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	err = Check(ctx, []string{"validate"}, contract, t.TempDir(), []string{"SESSION_PREFLIGHT_HELPER=blocked"})
+	err = Check(ctx, []string{"validate"}, contract, t.TempDir(), []string{"SESSION_PREFLIGHT_HELPER=blocked"}, 0, 0)
 	assertPreflightCode(t, err, "probe_timeout")
 	if time.Since(start) > 3*time.Second {
 		t.Fatal("probe ignored deadline")
@@ -194,7 +194,7 @@ func TestPreflightCancellationStopsGrandchild(t *testing.T) {
 	result := make(chan error, 1)
 	root := t.TempDir()
 	go func() {
-		result <- Check(ctx, []string{"validate"}, contract, root, []string{"SESSION_PREFLIGHT_HELPER=parent", "SESSION_PREFLIGHT_ADDRESS=" + listener.Addr().String()})
+		result <- Check(ctx, []string{"validate"}, contract, root, []string{"SESSION_PREFLIGHT_HELPER=parent", "SESSION_PREFLIGHT_ADDRESS=" + listener.Addr().String()}, 0, 0)
 	}()
 	connection, err := listener.AcceptTCP()
 	if err != nil {
@@ -237,9 +237,9 @@ func TestPreflightCancellationStopsGrandchild(t *testing.T) {
 }
 
 func TestPreflightInvalidContractDoesNotExecute(t *testing.T) {
-	err := Check(context.Background(), []string{"changed"}, []models.ValidationPrerequisite{{Command: "old", Env: []string{"VALUE"}}}, t.TempDir(), []string{"VALUE=present"})
+	err := Check(context.Background(), []string{"changed"}, []models.ValidationPrerequisite{{Command: "old", Env: []string{"VALUE"}}}, t.TempDir(), []string{"VALUE=present"}, 0, 0)
 	assertPreflightCode(t, err, "invalid_contract")
-	if err := Check(context.Background(), []string{"legacy"}, nil, t.TempDir(), nil); err != nil {
+	if err := Check(context.Background(), []string{"legacy"}, nil, t.TempDir(), nil, 0, 0); err != nil {
 		t.Fatalf("legacy task rejected: %v", err)
 	}
 	unsafe := &Error{Code: "CANARY-SECRET", Variable: "CANARY\nVALUE"}

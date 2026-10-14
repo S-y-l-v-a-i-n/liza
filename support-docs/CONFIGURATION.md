@@ -489,6 +489,8 @@ are loaded at runtime from the provider catalog.
 | `deferred_validation.setup_timeout_seconds` | 1800 | 1 | — | seconds | Bound on `post_worktree_cmd` before each batch probe; set by editing state.yaml |
 | `deferred_validation.rulings` | (none) | — | — | list | Exact commands deferred at strict admission on operator authority; written only by `deferred-validation rule`/`unrule` |
 | `admission_limits` | (none) | 1 | 64 | list | Per class of command substrings, how many canonical commands execute at once; see [Admission limits](#admission-limits); written only by `admission-limit set`/`remove` |
+| `validation_preflight.probe_timeout_seconds` | 60 | 1 | — | seconds | Deadline per `validation_prerequisites` probe; set by editing state.yaml |
+| `validation_preflight.timeout_seconds` | 120 | 1 | — | seconds | Deadline for all probes of one preflight check; checks inside a provider tool call stay capped at 30; set by editing state.yaml |
 | `auto_checkpoint_summary` | true | — | — | boolean | Auto-runs checkpoint-summary when the sprint reaches a checkpoint and writes `§BRAND_PROJECT_DIRNAME§/checkpoint-summary.md` |
 | `scip_search` | (none) | — | — | language list | Durable allowlist of SCIP languages §BRAND_NAME_TITLE§ may index when `§BRAND_ENV_PREFIX§_ENABLE_SCIP_SEARCH` is truthy |
 
@@ -1480,6 +1482,11 @@ authenticated in-session operations still check afresh. For a blocked task with 
 prerequisites, unblock without `--assign-to` so the target supervisor checks its
 own context before claiming it. Diagnostics identify safe codes, check indices
 and required variable names, never variable values or probe output.
+`probe_timeout` means a probe outlived its deadline, not that a prerequisite is
+missing: probes that import a project's dependencies can be slow on a loaded
+host, so raise `validation_preflight.probe_timeout_seconds` or `timeout_seconds`
+(see the [Configuration Matrix](#configuration-matrix)), or probe for presence
+rather than performing full imports.
 
 When every doer and reviewer role of the pair that consumes a code plan's
 `output[]` launches on a CLI with `validation_execution: local`, code planners are

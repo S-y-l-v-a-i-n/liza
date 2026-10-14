@@ -1449,6 +1449,9 @@ config:
       - command: "make test-e2e"
         ruling: "decision D-97"
         recorded_at: 2026-10-10T10:00:00Z
+  validation_preflight:         # Optional; validation_prerequisites probe deadlines
+    probe_timeout_seconds: 60   # Per probe; non-positive uses 60
+    timeout_seconds: 120        # All probes of one check; non-positive uses 120; in-session checks capped at 30
 ```
 
 A strict task's `acceptance_receipt.deferred[]` lists the canonical commands

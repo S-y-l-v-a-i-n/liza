@@ -284,6 +284,8 @@ func prepareValidationPreflight(projectRoot, taskID, agentID, worktree string, s
 	if session != nil && session.ConfigDigest != "" && session.ConfigDigest != p.configDigest {
 		checkErr = validationError("configuration_changed")
 	}
+	// Without a supervisor session the check runs inside a provider tool call.
+	inSession := session == nil
 	if session == nil {
 		id := brand.LookupEnv(os.Getenv, "AGENT_ID").Value
 		generation := brand.LookupEnv(os.Getenv, "AGENT_GENERATION").Value
@@ -311,9 +313,8 @@ func prepareValidationPreflight(projectRoot, taskID, agentID, worktree string, s
 		checkErr = validationError("execution_policy_required")
 	}
 	if checkErr == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		checkErr = sessionvalidation.Check(ctx, task.Validation, task.ValidationPrerequisites, worktree, append([]string(nil), session.Environment...))
-		cancel()
+		probeTimeout, totalTimeout := models.EffectiveValidationPreflightLimits(state.Config, inSession)
+		checkErr = sessionvalidation.Check(context.Background(), task.Validation, task.ValidationPrerequisites, worktree, append([]string(nil), session.Environment...), probeTimeout, totalTimeout)
 		var missing *sessionvalidation.Error
 		if errors.As(checkErr, &missing) && missing.Code == "environment_missing" && models.RuntimeInputDenyNames(state)[missing.Variable] {
 			// A legacy prerequisite demands a name reserved for runtime inputs,

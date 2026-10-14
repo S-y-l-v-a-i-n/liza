@@ -79,6 +79,19 @@ Protected retained ACPX sessions use the current process's scoped identity.
 - Optional signed validation artifacts are deliberately deferred; see
   [the debt entry](../../../TECH_DEBT.md#signed-validation-artifacts-for-unavailable-execution-contexts).
 
+## Amendment (2026-10-14)
+
+Probe cost depends on the project's declared probes and on host load, so fixed
+10-second per-probe and 30-second total deadlines killed healthy import probes
+on a loaded host (18-29 s) and starved their tasks (D-163). The deadlines are
+now `config.validation_preflight.probe_timeout_seconds` and `timeout_seconds`,
+defaulting to 60 and 120. A check inside a provider tool call (await-based
+reclaim, in-session ops) stays capped at 30 seconds in total so it fits the
+await call's foreground headroom; its failure releases the reservation and the
+supervisor's claim rechecks with the full budget. A hung probe now holds a
+supervisor claim or launch attempt up to the configured total, outside the
+blackboard lock.
+
 ## Related Documents
 
 - [Validation prerequisite protocol](../../protocols/validation-prerequisites.md)

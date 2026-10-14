@@ -51,13 +51,21 @@ func validVariable(name string) bool {
 }
 
 // Check executes cheap declared prerequisite probes in cwd with exactly env.
-// Each probe gets at most ten seconds and the whole check at most thirty seconds.
+// Each probe gets at most probeTimeout and the whole check at most totalTimeout
+// (models.EffectiveValidationPreflightLimits); a non-positive limit falls back
+// to ten and thirty seconds respectively.
 // Output is discarded at the child-process boundary, including on failure.
-func Check(ctx context.Context, commands []string, prerequisites []models.ValidationPrerequisite, cwd string, env []string) error {
+func Check(ctx context.Context, commands []string, prerequisites []models.ValidationPrerequisite, cwd string, env []string, probeTimeout, totalTimeout time.Duration) error {
 	if err := models.ValidateValidationPrerequisites(commands, prerequisites); err != nil {
 		return &Error{Code: "invalid_contract", CommandIndex: -1, CheckIndex: -1}
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	if probeTimeout <= 0 {
+		probeTimeout = 10 * time.Second
+	}
+	if totalTimeout <= 0 {
+		totalTimeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, totalTimeout)
 	defer cancel()
 	for _, prerequisite := range prerequisites {
 		commandIndex := -1
@@ -81,7 +89,7 @@ func Check(ctx context.Context, commands []string, prerequisites []models.Valida
 			}
 		}
 		for i, argv := range prerequisite.Probes {
-			if code := runProbe(ctx, argv, cwd, env); code != "" {
+			if code := runProbe(ctx, argv, cwd, env, probeTimeout); code != "" {
 				return &Error{Code: code, CommandIndex: commandIndex, CheckIndex: i}
 			}
 		}
@@ -89,12 +97,12 @@ func Check(ctx context.Context, commands []string, prerequisites []models.Valida
 	return nil
 }
 
-func runProbe(ctx context.Context, argv []string, cwd string, env []string) string {
+func runProbe(ctx context.Context, argv []string, cwd string, env []string, timeout time.Duration) string {
 	path, err := LookPath(argv[0], cwd, env)
 	if err != nil {
 		return "executable_missing"
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(probeCtx, path, argv[1:]...)
 	configureProbeCancellation(cmd)

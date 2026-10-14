@@ -156,6 +156,7 @@ func TestGetField_DiscoversAllTaggedConfigAndSprintFields(t *testing.T) {
 				BatchEveryMerges: 3, SetupTimeoutSeconds: 600,
 				Rulings: []models.DeferredValidationRuling{{Command: "make e2e", Ruling: "decision D-97", RecordedAt: now}},
 			},
+			ValidationPreflight: &models.ValidationPreflightConfig{ProbeTimeoutSeconds: 90, TimeoutSeconds: 300},
 		},
 		Sprint: models.Sprint{
 			ID:      "sprint-42",

@@ -173,7 +173,10 @@ Relationships that must hold:
   use `write_stdin` to wait on that same process, never start a duplicate await.
   Default-interval and provider-policy tests check these bounds; they do not measure
   deployed provider turn/cache-token counts. A full 1800s idle wait needs up to four
-  Claude calls rather than eighteen 100s calls.
+  Claude calls rather than eighteen 100s calls. A reclaim found late in a call runs
+  validation preflight in the same call, so in-session preflight stays capped at
+  30s (`models.InSessionValidationPreflightTimeout`), inside the 60s Claude
+  headroom, whatever `config.validation_preflight` sets.
 - **Wait budget ≥ longest expected peer pass.** A first review runs ~15m, corrective
   passes 5-10m; 1800s covers the worst case with margin.
 - **Session ceiling ≥ rounds × (own pass + wait).** With `DefaultMaxReviewCycles = 5`,
