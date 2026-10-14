@@ -232,10 +232,12 @@ func admissionQueueHead(queueLock *filelock.FileLock, queue, ticketPath string) 
 }
 
 func removeAdmissionTicket(path string, held *filelock.Held) {
+	// Release before removing: Windows refuses to unlink an open file, and
+	// releasing first also avoids a re-creator flocking a different inode.
+	_ = held.Release()
 	for _, file := range []string{path + ".lock", path + ".lock.owner.json"} {
 		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
 			log.Printf("WARNING: admission slot ticket not removed: %v", err)
 		}
 	}
-	_ = held.Release()
 }
