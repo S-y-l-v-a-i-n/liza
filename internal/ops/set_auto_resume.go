@@ -7,6 +7,7 @@ import (
 	"github.com/liza-mas/liza/internal/db"
 	"github.com/liza-mas/liza/internal/models"
 	"github.com/liza-mas/liza/internal/paths"
+	"github.com/liza-mas/liza/internal/secretmask"
 )
 
 const AutoResumeConfigKey = "config.auto_resume"
@@ -30,8 +31,10 @@ func SetAutoResume(projectRoot string, enabled bool) error {
 func SetAutoResumeWithResult(projectRoot string, enabled bool) (*AutoResumeConfigResult, error) {
 	bb := db.For(paths.New(projectRoot).StatePath())
 	result := &AutoResumeConfigResult{Key: AutoResumeConfigKey, Value: enabled, Outcome: "unchanged"}
+	previous := false
 	err := bb.Modify(func(state *models.State) error {
-		if state.Config.AutoResume != enabled {
+		previous = state.Config.AutoResume
+		if previous != enabled {
 			state.Config.AutoResume = enabled
 			result.Outcome = "set"
 		}
@@ -40,8 +43,9 @@ func SetAutoResumeWithResult(projectRoot string, enabled bool) (*AutoResumeConfi
 	if err != nil {
 		result.Outcome = "failed"
 	}
-	// Boolean policy metadata only; no goal, paths, shell text or credentials.
-	log.Printf("config_set key=%s outcome=%s actor=operator value=%t", AutoResumeConfigKey, result.Outcome, enabled)
+	// Same record shape as the other config_set writers; no reason, since this key takes none.
+	log.Printf("config_set key=%s outcome=%s actor=%q project=%q previous=%t value=%t",
+		AutoResumeConfigKey, result.Outcome, "operator", secretmask.New().MaskText(projectRoot), previous, enabled)
 	if err != nil {
 		return nil, fmt.Errorf("set %s: %w", AutoResumeConfigKey, err)
 	}

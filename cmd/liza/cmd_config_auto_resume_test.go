@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -114,11 +115,12 @@ func TestConfigAutoResumeAuditAndTextOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(audit.String(), "config_set key=config.auto_resume outcome=set actor=operator value=true") {
-		t.Fatal("missing metadata audit")
+	want := fmt.Sprintf("config_set key=config.auto_resume outcome=set actor=%q project=%q previous=false value=true", "operator", root)
+	if !strings.Contains(audit.String(), want) {
+		t.Fatalf("audit record missing or misshapen:\n got: %s\nwant: %s", audit.String(), want)
 	}
-	if strings.Contains(stdout, "config_set") || strings.Contains(audit.String(), root) {
-		t.Fatal("audit leaked into JSON or exposed project paths")
+	if strings.Contains(stdout, "config_set") {
+		t.Fatal("audit leaked into JSON stdout")
 	}
 	resetRootCmdForTest(t)
 	var text bytes.Buffer
