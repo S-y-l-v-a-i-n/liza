@@ -75,10 +75,12 @@ await-verdict and await-resubmission, not the foreground POLL slice or total
 wait budget. Notifications still trigger checks immediately. Changes apply
 at the next invocation (including the next foreground slice).
 
-config.auto_resume takes exactly true or false and is operator-only. Setting it
-changes only the continuation policy; it does not pause, resume or start agents.
-Use pause for a hard stop. Repeating the value succeeds with outcome unchanged.
-This key does not use --replace or --reason.
+config.auto_resume takes exactly true or false and is operator-only. The write
+itself changes no mode, sprint or task state, but running agents act on it at
+their next state poll: enabling it at a CHECKPOINT or COMPLETED sprint releases
+that gate (a transition checkpoint only for the orchestrator). Run pause first
+if the current gate must hold; pause is never auto-resumed. Repeating the value
+succeeds with outcome unchanged. This key does not use --replace or --reason.
 
 config.runtime_input_registry is the repository-relative path of the
 runtime-input recipe registry, read at the integration commit. Operator-only.
