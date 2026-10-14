@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -274,12 +275,16 @@ func loadDeclaredAcceptanceInput(root string, state *models.State, task *models.
 	}
 	for _, direct := range refs.DirectReferences {
 		revision := direct.EffectiveRevision(refs.SourceRevision)
-		span, _, err := readAcceptanceBlob(root, revision, direct.Path)
+		span, _, err := readReferenceBlob(root, revision, direct.Path)
 		if err != nil {
 			return fail("cannot resolve pinned reference " + direct.ID)
 		}
-		if _, err := referencecontract.ExtractSection(span, direct.Heading); err != nil {
-			return content("cannot resolve exact heading for reference " + direct.ID)
+		if _, err := referenceSection(span, direct.Heading); err != nil {
+			var heading *referencecontract.HeadingMatchError
+			if errors.As(err, &heading) {
+				return content("cannot resolve exact heading for reference " + direct.ID)
+			}
+			return content(fmt.Sprintf("reference %s: %v", direct.ID, err))
 		}
 	}
 
@@ -501,8 +506,6 @@ func validAcceptanceParentHistory(g *git.Git, parent *models.Task) bool {
 	return true
 }
 
-// readAcceptanceBlob bounds the object before reading it and never consults
-// the worktree or follows symlinks. Used for source, proof and manifest objects.
 // reviewedReferencesResolveAlike reports whether every reference the reviewed
 // contract depends on still resolves to the content the reviewer approved.
 //
@@ -626,11 +629,13 @@ func resolveDeclaredReference(root string, refs *referencecontract.Contract, ref
 	return resolveDeclaredReferenceCached(nil, root, refs, referenceID)
 }
 
-// blobCache memoizes file content by revision and path within one pass. A nil
-// cache reads every time, which is what the acceptance boundary wants: it
-// resolves a handful of references and must not hold stale content across
-// calls. A caller comparing many references that cite the same file at the
-// same revision passes a cache and pays one read instead of one per reference.
+// blobCache memoizes referenced file content by revision and path within one
+// pass. A nil cache reads every time, which is what the acceptance boundary
+// wants: it resolves a handful of references and must not hold stale content
+// across calls. A caller comparing many references that cite the same file at
+// the same revision passes a cache and pays one read instead of one per
+// reference. Ceiling: each entry is at most ReferenceFileMaxBytes, so a pass
+// over many distinct large files holds them all until it ends.
 type blobCache map[string]string
 
 func (c blobCache) read(root, revision, path string) (string, bool) {
@@ -640,7 +645,7 @@ func (c blobCache) read(root, revision, path string) (string, bool) {
 			return content, true
 		}
 	}
-	content, _, err := readAcceptanceBlob(root, revision, path)
+	content, _, err := readReferenceBlob(root, revision, path)
 	if err != nil {
 		return "", false
 	}
@@ -659,13 +664,28 @@ func resolveDeclaredReferenceCached(cache blobCache, root string, refs *referenc
 		if !ok {
 			return "", false
 		}
-		section, err := referencecontract.ExtractSection(strings.ReplaceAll(content, "\r\n", "\n"), direct.Heading)
+		section, err := referenceSection(content, direct.Heading)
 		if err != nil {
 			return "", false
 		}
 		return section, true
 	}
 	return "", false
+}
+
+// referenceSection extracts the section a Direct Reference cites and bounds
+// it. Line endings are normalized first, as for carrier spans, so the bound
+// applies to the same bytes a section's identity is computed over and a CRLF
+// conversion cannot change whether a reference is admissible.
+func referenceSection(content, heading string) (string, error) {
+	section, err := referencecontract.ExtractSection(strings.ReplaceAll(content, "\r\n", "\n"), heading)
+	if err != nil {
+		return "", err
+	}
+	if len(section) > referencecontract.ReferenceSectionMaxBytes {
+		return "", fmt.Errorf("cited section is %d bytes, over the %d-byte bound", len(section), referencecontract.ReferenceSectionMaxBytes)
+	}
+	return section, nil
 }
 
 // carrierSpanIdentity is the identity of an allocation: the object id of the
@@ -744,7 +764,20 @@ func sameBlobAt(g *git.Git, commitA, commitB, path string) bool {
 	return oids[0].Err == nil && oids[1].Err == nil && oids[0].OID == oids[1].OID
 }
 
+// readAcceptanceBlob bounds the object before reading it and never consults
+// the worktree or follows symlinks. Used for carriers and manifests; Direct
+// Reference targets go through readReferenceBlob.
 func readAcceptanceBlob(root, commit, path string) (string, string, error) {
+	return readBoundedBlob(root, commit, path, referencecontract.AcceptanceMaxBytes)
+}
+
+// readReferenceBlob reads a Direct Reference's file under the larger file cap;
+// referenceSection then bounds the section the reference actually cites.
+func readReferenceBlob(root, commit, path string) (string, string, error) {
+	return readBoundedBlob(root, commit, path, referencecontract.ReferenceFileMaxBytes)
+}
+
+func readBoundedBlob(root, commit, path string, limit int64) (string, string, error) {
 	if err := referencecontract.ValidateAcceptancePath(path); err != nil {
 		return "", "", fmt.Errorf("invalid acceptance artifact path")
 	}
@@ -752,13 +785,17 @@ func readAcceptanceBlob(root, commit, path string) (string, string, error) {
 	// One ls-tree reports mode, type, object ID and size together; the blob
 	// itself is read only after the size bound holds.
 	entry, present, err := g.TreeEntryAt(commit, path)
-	return readAcceptanceEntry(g, path, entry, present, err)
+	return readBoundedEntry(g, path, entry, present, err, limit)
 }
 
 // readAcceptanceEntry applies readAcceptanceBlob's bounds to a tree entry the
 // caller already looked up, so a caller that inspected the entry itself does
 // not pay a second ls-tree for the same path.
 func readAcceptanceEntry(g *git.Git, path string, entry git.TreeEntry, present bool, err error) (string, string, error) {
+	return readBoundedEntry(g, path, entry, present, err, referencecontract.AcceptanceMaxBytes)
+}
+
+func readBoundedEntry(g *git.Git, path string, entry git.TreeEntry, present bool, err error, limit int64) (string, string, error) {
 	if err != nil {
 		return "", "", fmt.Errorf("cannot inspect acceptance artifact: %s: %w", path, err)
 	}
@@ -772,8 +809,8 @@ func readAcceptanceEntry(g *git.Git, path string, entry git.TreeEntry, present b
 	if entry.Size < 0 {
 		return "", "", fmt.Errorf("acceptance artifact cannot be sized: %s", path)
 	}
-	if entry.Size > 256*1024 {
-		return "", "", fmt.Errorf("acceptance artifact exceeds 256 KiB: %s", path)
+	if entry.Size > limit {
+		return "", "", fmt.Errorf("acceptance artifact exceeds %d KiB: %s", limit/1024, path)
 	}
 	content, err := g.ReadBlobObject(blob)
 	if err != nil {

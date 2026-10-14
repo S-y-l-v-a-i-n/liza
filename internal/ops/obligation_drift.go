@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/liza-mas/liza/internal/db"
@@ -95,7 +94,7 @@ func detectStaleUnderPins(cache blobCache, blobOID func(revision, path string) (
 			}
 			section := ""
 			if content, readable := cache.read(root, integrationCommit, target.Path); readable {
-				if span, err := referencecontract.ExtractSection(strings.ReplaceAll(content, "\r\n", "\n"), target.Heading); err == nil {
+				if span, err := referenceSection(content, target.Heading); err == nil {
 					section = spanObjectID(span)
 				}
 			}

@@ -13,6 +13,12 @@ import (
 const (
 	// AcceptanceMaxBytes bounds each source carrier and submitted manifest.
 	AcceptanceMaxBytes = 256 * 1024
+	// ReferenceSectionMaxBytes bounds the section a Direct Reference cites,
+	// measured after line-ending normalization; ReferenceFileMaxBytes caps the
+	// file carrying it before it is read. Bounding the whole file instead made a
+	// small section of a growing document uncitable (D-169).
+	ReferenceSectionMaxBytes = 256 * 1024
+	ReferenceFileMaxBytes    = 4 << 20
 	// AcceptanceMaxTimeoutSeconds bounds a reviewed acceptance batch. Real-database
 	// suites under multi-agent load exceed one hour (D-56); the default stays 600 s.
 	AcceptanceMaxTimeoutSeconds = 4 * 3600
